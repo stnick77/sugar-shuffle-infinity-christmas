@@ -28,6 +28,11 @@ type Partner = {
 /** Floor gaps this wide or narrower are real pits; wider ones keep a walkable trench floor. */
 const PIT_MAX_TILES = 4;
 
+/** Texture key for a background image path (one texture per picture). */
+function bgKeyFor(path: string) {
+  return `bg:${path}`;
+}
+
 /** Ending thresholds (see escapePumpkin). */
 const GOOD_ESCAPE_SECONDS = 90;
 const OMEGA_BURST_KILLS = 40;
@@ -150,17 +155,9 @@ export class PlayScene extends Phaser.Scene {
     const sheet = (k: string, path: string) => {
       if (!this.textures.exists(k)) this.load.spritesheet(k, path, { frameWidth: 128, frameHeight: 128 });
     };
-    s("bg-valley", "/game/bg/candy-corn-valley.jpg");
-    s("bg-mash", "/game/bg/marsh-mellow-mash.jpg");
-    s("bg-forest", "/game/bg/lolly-pop-forest.jpg");
-    s("bg-mountain", "/game/bg/butter-scotch-mountain.jpg");
-    s("bg-hub", "/game/bg/hub-interior.jpg");
-    s("bg-desert", "/game/bg/sugar-rush-desert.jpg");
-    s("bg-farm", "/game/bg/cookie-war-farm.jpg");
-    s("bg-showdown", "/game/bg/sour-showdown.jpg");
-    s("bg-dune", "/game/bg/butter-scotch-dune.jpg");
-    s("bg-landfill", "/game/bg/landfill.jpg");
-    s("bg-plex", "/game/bg/plex.jpg");
+    // Only this room's background: every room has its own picture now, so load it on demand.
+    const room = LEVELS[this.levelId] ?? HOUSE_LEVELS[this.levelId] ?? LEVELS["hub-1"]!;
+    s(bgKeyFor(room.bg), room.bg);
     s("ground-candy", "/game/sprites/ground-candy.png");
     s("ground-marsh", "/game/sprites/ground-marsh.png");
     for (const h of ["cuboe", "cubro"] as const) {
@@ -289,19 +286,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private bgKey() {
-    const p = this.level.bg;
-    if (p.includes("hub")) return "bg-hub";
-    if (p.includes("lolly-pop-forest")) return "bg-forest";
-    if (p.includes("butter-scotch-mountain")) return "bg-mountain";
-    if (p.includes("butter-scotch-dune")) return "bg-dune";
-    if (p.includes("cookie-war-farm")) return "bg-farm";
-    if (p.includes("sour-showdown")) return "bg-showdown";
-    if (p.includes("sugar-rush-desert")) return "bg-desert";
-    if (p.includes("marsh-mellow-mash") || p.includes("marsh-mash")) return "bg-mash";
-    if (p.includes("desert")) return "bg-desert";
-    if (p.includes("landfill")) return "bg-landfill";
-    if (p.includes("plex")) return "bg-plex";
-    return "bg-valley";
+    return bgKeyFor(this.level.bg);
   }
 
   private makeAnims() {
