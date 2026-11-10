@@ -15,7 +15,8 @@ export type Screen =
   | "codes"
   | "how"
   | "endings"
-  | "ending";
+  | "ending"
+  | "options";
 
 export interface Hud {
   score: number;

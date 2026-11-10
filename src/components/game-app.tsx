@@ -15,9 +15,13 @@ import { onGame } from "@/game/bus";
 import { unlockAudio, startMusic, stopMusic, sfx, setSfxVolume, setMusicVolume } from "@/game/audio";
 import { COMBOS, ENDINGS, HEROES, LORE, MINIGAMES, PROMO_CODES, type HeroId, type Rank } from "@/game/data/world";
 import { resetSave } from "@/game/save";
-import { HMR_EVENT } from "@/game/runtime";
+import { HMR_EVENT, ssi } from "@/game/runtime";
 import { useGame, type Screen } from "@/store/game-store";
 import { TouchPad } from "./touch-pad";
+import { XmasButton, XmasCloset, XmasOptions, XmasTitleExtras, useXmasOn } from "./xmas-dlc";
+import { checkDecemberGift, xmasOn } from "@/game/dlc/state";
+import { installXmasMusic, setMusicArea } from "@/game/dlc/xmasMusic";
+import { HOME_START } from "@/game/dlc/logic";
 
 function unlock() {
   unlockAudio();
@@ -34,6 +38,19 @@ export function GameApp() {
   const [bootKey, setBootKey] = useState(0);
   const [code, setCode] = useState("");
   const [codeMsg, setCodeMsg] = useState("");
+  /** DLC: first room for the next boot (Cuboe and Cubro's Home). */
+  const pendingStart = useRef<string | null>(null);
+  const dlcOn = save.dlc.xmas.enabled;
+
+  useEffect(() => {
+    installXmasMusic();
+    const msg = checkDecemberGift();
+    if (msg) setToast(msg);
+  }, [setToast]);
+
+  useEffect(() => {
+    if (screen === "title" || screen === "select") setMusicArea("menu");
+  }, [screen]);
 
   const backToPlay = () => {
     void import("@/game/phaserGame").then((m) => m.getPlay()?.unfreeze());
@@ -72,6 +89,8 @@ export function GameApp() {
     void import("@/game/phaserGame").then((m) => m.destroyGame());
     setScreen("title");
   };
+  const goTitleRef = useRef(goTitle);
+  goTitleRef.current = goTitle;
 
   useEffect(() => {
     const off = onGame((e) => {
@@ -103,6 +122,10 @@ export function GameApp() {
         setScreen("gallery");
       } else if (e.t === "toast") setToast(e.text);
       else if (e.t === "ready") setReady(true);
+      else if (e.t === "title") {
+        goTitleRef.current();
+        if (xmasOn()) unlock();
+      }
     });
     return () => {
       off();
@@ -161,6 +184,8 @@ export function GameApp() {
   const playAs = (hero: HeroId) => {
     unlock();
     useGame.getState().pickHero(hero);
+    ssi().startLevel = pendingStart.current ?? undefined;
+    pendingStart.current = null;
     setReady(false);
     setBooted(true);
     setBootKey((k) => k + 1);
@@ -239,14 +264,34 @@ export function GameApp() {
             setScreen("select");
           }}
           go={(s) => openMenu(s, "title")}
+          onHome={() => {
+            unlock();
+            pendingStart.current = HOME_START;
+            setBooted(false);
+            setReady(false);
+            setScreen("select");
+          }}
         />
       )}
-      {screen === "select" && <Select onPick={playAs} onBack={goTitle} />}
+      {screen === "select" && (
+        <Select
+          onPick={playAs}
+          onBack={() => {
+            pendingStart.current = null;
+            goTitle();
+          }}
+        />
+      )}
       {screen === "pause" && (
         <Modal title="Paused">
           <Btn onClick={resume}>Resume</Btn>
           <Btn onClick={toHub} tone="ghost">Floor hub</Btn>
           <Btn onClick={() => openMenu("how", "pause")} tone="ghost">Controls</Btn>
+          {dlcOn && (
+            <Btn onClick={() => openMenu("options", "pause")} tone="ghost">
+              Options
+            </Btn>
+          )}
           <Btn onClick={goTitle} tone="ghost">
             Title
           </Btn>
@@ -291,6 +336,22 @@ export function GameApp() {
         />
       )}
       {screen === "endings" && <Endings onClose={closeMenu} />}
+      {screen === "options" && (
+        <XmasOptions
+          onClose={closeMenu}
+          inGame={menuFrom.current === "pause"}
+          onHome={() => {
+            if (menuFrom.current === "pause") {
+              void import("@/game/phaserGame").then((m) => m.getPlay()?.enterHouse());
+              backToPlay();
+            } else {
+              unlock();
+              pendingStart.current = HOME_START;
+              setScreen("select");
+            }
+          }}
+        />
+      )}
 
       {toast && (
         <div className="pointer-events-none absolute left-1/2 top-16 z-40 -translate-x-1/2 rounded-full border border-cream/15 bg-ink/80 px-4 py-2 text-sm font-bold">
@@ -356,17 +417,20 @@ function HudBar() {
   );
 }
 
-function Title({ onPlay, go }: { onPlay: () => void; go: (s: Screen) => void }) {
+function Title({ onPlay, go, onHome }: { onPlay: () => void; go: (s: Screen) => void; onHome: () => void }) {
+  const dlcOn = useXmasOn();
   return (
     <div
-      className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-cover bg-center px-5"
+      className="absolute inset-0 z-40 flex flex-col items-center justify-center overflow-y-auto bg-cover bg-center px-5 py-6"
       style={{ backgroundImage: "linear-gradient(#140c0acc,#140c0ae6), url('/game/bg/candy-corn-valley.jpg')" }}
     >
+      {dlcOn && <div className="xmas-snow pointer-events-none absolute inset-0" aria-hidden />}
       <p className="text-xs font-extrabold uppercase tracking-[0.28em] text-candy">Inside the giant pumpkin</p>
       <h1 className="mt-2 text-center font-display text-5xl leading-[0.9] tracking-tight sm:text-7xl">
         Sugar Shuffle
         <span className="block text-candy">Infinity</span>
       </h1>
+      {dlcOn && <XmasTitleExtras />}
       <div className="mt-4 flex items-end gap-6">
         <img src={HEROES.cuboe.portrait} alt="" className="h-16 w-16 object-contain" />
         <img src={HEROES.cubro.portrait} alt="" className="h-16 w-16 object-contain" />
@@ -395,6 +459,17 @@ function Title({ onPlay, go }: { onPlay: () => void; go: (s: Screen) => void }) 
         <Btn tone="ghost" onClick={() => { sfx.ui(); go("endings"); }}>
           <Trophy className="size-4" /> Endings
         </Btn>
+        {dlcOn && (
+          <div className="grid grid-cols-2 gap-2">
+            <Btn tone="ghost" onClick={onHome}>
+              Cuboe and Cubro&apos;s Home
+            </Btn>
+            <Btn tone="ghost" onClick={() => { sfx.ui(); go("options"); }}>
+              Options
+            </Btn>
+          </div>
+        )}
+        <XmasButton />
       </div>
       <SettingsRow />
     </div>
@@ -503,6 +578,7 @@ function Gallery({ go, onClose }: { go: (s: Screen) => void; onClose: () => void
         <Btn onClick={() => go("minigames")} tone="ghost">Minigames</Btn>
         <Btn onClick={() => go("endings")} tone="ghost">Endings</Btn>
       </div>
+      <XmasCloset />
       <Btn tone="ghost" onClick={onClose}>Back to hub</Btn>
     </Sheet>
   );
