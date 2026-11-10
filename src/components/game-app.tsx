@@ -34,6 +34,15 @@ export function GameApp() {
   const [bootKey, setBootKey] = useState(0);
   const [code, setCode] = useState("");
   const [codeMsg, setCodeMsg] = useState("");
+  const mountGen = useRef(0);
+
+  /** Tear the game down later, unless a newer game was mounted first (avoids the stuck loading screen). */
+  const destroyLater = () => {
+    const gen = mountGen.current;
+    void import("@/game/phaserGame").then((m) => {
+      if (mountGen.current === gen) m.destroyGame();
+    });
+  };
 
   const backToPlay = () => {
     void import("@/game/phaserGame").then((m) => m.getPlay()?.unfreeze());
@@ -69,7 +78,7 @@ export function GameApp() {
     stopMusic();
     setBooted(false);
     setReady(false);
-    void import("@/game/phaserGame").then((m) => m.destroyGame());
+    destroyLater();
     setScreen("title");
   };
 
@@ -113,6 +122,7 @@ export function GameApp() {
     if (!booted || !host.current) return;
     let alive = true;
     let destroy: (() => void) | undefined;
+    mountGen.current += 1;
     void import("@/game/phaserGame").then((m) => {
       if (!alive || !host.current) return;
       m.destroyGame();
@@ -235,7 +245,7 @@ export function GameApp() {
             unlock();
             setBooted(false);
             setReady(false);
-            void import("@/game/phaserGame").then((m) => m.destroyGame());
+            destroyLater();
             setScreen("select");
           }}
           go={(s) => openMenu(s, "title")}
