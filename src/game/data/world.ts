@@ -206,9 +206,9 @@ export const LORE = [
 export const ENDINGS = [
   { id: "normal", name: "Normal", how: "Complete the game and escape the rotting pumpkin." },
   { id: "bad", name: "Bad", how: "Fail to escape the rotting pumpkin." },
-  { id: "good", name: "Good", how: "Punch the Warlock out of the rotting pumpkin and save every boss." },
-  { id: "playco", name: "Playco Path", how: "Spare the Candy Warlock for a finale battle." },
-  { id: "omega", name: "Omega Saiyan", how: "As Cubro, burst-kill 40 enemies and save every boss including the Warlock." },
+  { id: "good", name: "Good", how: "Punch the Warlock out of the rotting pumpkin: escape with 1:30 or more left." },
+  { id: "playco", name: "Playco Path", how: "Spare the Candy Warlock: escape the rotting pumpkin without defeating anyone." },
+  { id: "omega", name: "Omega Saiyan", how: "As Cubro, burst-kill 40 enemies, then escape the rotting pumpkin." },
   { id: "true", name: "True", how: "Collect every other ending. The Warlock becomes a friend." },
 ];
 

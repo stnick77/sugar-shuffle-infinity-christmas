@@ -11,6 +11,10 @@ import { useGame } from "@/store/game-store";
 /** Floor gaps this wide or narrower are real pits; wider ones keep a walkable trench floor. */
 const PIT_MAX_TILES = 4;
 
+/** Ending thresholds (see escapePumpkin). */
+const GOOD_ESCAPE_SECONDS = 90;
+const OMEGA_BURST_KILLS = 40;
+
 const CLEAR_BUX: Record<string, number> = { P: 250, S: 200, A: 175, B: 150, C: 125, D: 100, F: 75 };
 
 type Mob = {
@@ -65,6 +69,7 @@ export class PlayScene extends Phaser.Scene {
   private holeT = 0;
   private invulnT = 0;
   private speedT = 0;
+  private kills = 0;
   private dust!: Phaser.GameObjects.Particles.ParticleEmitter;
 
   constructor() {
@@ -100,6 +105,7 @@ export class PlayScene extends Phaser.Scene {
     this.holeT = 0;
     this.invulnT = 0;
     this.speedT = 0;
+    this.kills = 0;
     this.prompt = "";
   }
 
@@ -731,6 +737,7 @@ export class PlayScene extends Phaser.Scene {
       this.pop(m.spr.x, m.spr.y, m.kind === "boss" ? "KO" : "+100");
       m.spr.destroy();
       if (m.kind === "boss") this.winBoss();
+      else this.kills++;
     }
   }
 
@@ -1073,7 +1080,7 @@ export class PlayScene extends Phaser.Scene {
     if (d > 42) return;
     if (this.goal === "exit") {
       if (this.level.isFinal) {
-        this.finish("normal");
+        this.escapePumpkin();
         return;
       }
       this.startSugarTime();
@@ -1266,17 +1273,38 @@ export class PlayScene extends Phaser.Scene {
     emitGame({ t: "rank", levelId: id, rank, score: this.score + 3000 });
   }
 
-  private finish(ending: string) {
-    this.frozen = true;
+  /**
+   * Escaping the Rotting Pumpkin. Every escape is Normal; the run can also earn:
+   * Good — escape with 90+ seconds left (punched the Warlock out in time),
+   * Playco — escape without defeating anyone in the pumpkin (spared the Warlock),
+   * Omega — as Cubro with 40+ Super Saiyan Burst kills over the save.
+   * The best one earned is shown; all of them are saved.
+   */
+  private escapePumpkin() {
     const save = useGame.getState().save;
-    const endings = save.endings.includes(ending) ? save.endings : [...save.endings, ending];
+    const earned = ["normal"];
+    if (this.timer >= GOOD_ESCAPE_SECONDS) earned.push("good");
+    if (this.kills === 0) earned.push("playco");
+    if (this.hero === "cubro" && save.saiyanKills >= OMEGA_BURST_KILLS) earned.push("omega");
+    this.finish(earned);
+  }
+
+  private finish(earned: string | string[]) {
+    this.frozen = true;
+    const list = Array.isArray(earned) ? earned : [earned];
+    const save = useGame.getState().save;
+    const endings = [...save.endings];
+    for (const e of list) if (!endings.includes(e)) endings.push(e);
+    const others = ["normal", "bad", "good", "playco", "omega"];
+    const gotTrue = !endings.includes("true") && others.every((e) => endings.includes(e));
+    if (gotTrue) endings.push("true");
     useGame.getState().persist({ endings });
-    if (endings.length >= 5 && !endings.includes("true")) {
-      useGame.getState().persist({ endings: [...endings, "true"] });
+    if (gotTrue) {
       emitGame({ t: "win", ending: "true" });
       return;
     }
-    emitGame({ t: "win", ending });
+    const best = ["omega", "playco", "good", "normal", "bad"].find((e) => list.includes(e)) ?? list[0]!;
+    emitGame({ t: "win", ending: best });
   }
 
   private unlockLore(id: string) {
