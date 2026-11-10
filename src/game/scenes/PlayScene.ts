@@ -739,7 +739,7 @@ export class PlayScene extends Phaser.Scene {
   private hitMob(m: Mob, dmg: number) {
     if (m.spr.getData("flash")) return;
     if (m.kind === "boss" && !m.spr.getData("open")) {
-      this.pop(m.spr.x, m.spr.y - 50, "FLASHING");
+      this.pop(m.spr.x, m.spr.y - 50, "WAIT FOR THE FLASH");
       return;
     }
     m.hp -= dmg;
