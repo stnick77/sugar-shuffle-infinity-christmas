@@ -70,6 +70,7 @@ export class PlayScene extends Phaser.Scene {
   private invulnT = 0;
   private speedT = 0;
   private kills = 0;
+  private startMark?: Phaser.GameObjects.Text;
   private dust!: Phaser.GameObjects.Particles.ParticleEmitter;
 
   constructor() {
@@ -107,6 +108,7 @@ export class PlayScene extends Phaser.Scene {
     this.speedT = 0;
     this.kills = 0;
     this.prompt = "";
+    this.startMark = undefined;
   }
 
   preload() {
@@ -409,8 +411,29 @@ export class PlayScene extends Phaser.Scene {
     });
     if (!this.level.isHub && !this.level.isBoss) {
       this.add.sprite(this.exitPt.x, this.exitPt.y - 16, "props", 1).setDisplaySize(56, 72).setDepth(2);
+      this.drawStartFlag();
       this.buildPits();
     }
+  }
+
+  /** Start flag: where Sugar Time sends you back to. */
+  private drawStartFlag() {
+    const { x, y } = this.spawn;
+    const g = this.add.graphics().setDepth(2);
+    g.fillStyle(0xfff4d6, 1);
+    g.fillRect(x - 2, y - 56, 4, 84);
+    g.fillStyle(0xff4d7a, 1);
+    g.fillTriangle(x + 2, y - 56, x + 34, y - 46, x + 2, y - 36);
+    this.startMark = this.add
+      .text(x, y - 74, "START", {
+        fontFamily: "Lilita One, Impact, sans-serif",
+        fontSize: "18px",
+        color: "#fff4d6",
+        stroke: "#140c0a",
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5)
+      .setDepth(8);
   }
 
   /** Short floor gaps become deadly pits (marked with goo); long ones get a trench floor under the camera. */
@@ -1076,8 +1099,8 @@ export class PlayScene extends Phaser.Scene {
   private tickGoal() {
     if (this.level.isHub || this.level.isBoss) return;
     const target = this.goal === "exit" ? this.exitPt : this.spawn;
-    const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, target.x, target.y);
-    if (d > 42) return;
+    // A tall box, so running or jumping through the door / start flag still counts.
+    if (Math.abs(this.player.x - target.x) > 56 || Math.abs(this.player.y - target.y) > 96) return;
     if (this.goal === "exit") {
       if (this.level.isFinal) {
         this.escapePumpkin();
@@ -1097,6 +1120,10 @@ export class PlayScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(0x3a1008);
     sfx.pizza();
     this.pop(this.player.x, this.player.y - 20, "SUGAR TIME");
+    if (this.startMark) {
+      this.startMark.setText("RUN BACK!").setColor("#ff4d7a");
+      this.tweens.add({ targets: this.startMark, scale: 1.25, yoyo: true, repeat: -1, duration: 320 });
+    }
     for (let i = 0; i < 3; i++) {
       this.spawnMob(this.exitPt.x - 80 - i * 70, this.exitPt.y - 8, i === 1 ? "nincube" : "boxguy");
     }
