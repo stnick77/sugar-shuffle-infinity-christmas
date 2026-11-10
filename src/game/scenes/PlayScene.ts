@@ -3,9 +3,26 @@ import { TILE } from "../config";
 import { LEVELS, eachCell, hubIdFor, worldSize, type LevelDef } from "../data/levels";
 import { BOSSES, FLOORS, HEROES, rankFromScore, type HeroId } from "../data/world";
 import { emitGame } from "../bus";
-import { bootInput, pollGamepad, readActions, setInjected } from "../input";
+import { bootInput, pollGamepad, readActions, readActionsP2, setCoopInput, setInjected } from "../input";
 import { sfx } from "../audio";
 import { useGame } from "@/store/game-store";
+import { ssi } from "../runtime";
+// 'Tis the Seasones DLC — everything below is gated on xmasOn() / house rooms.
+import { COLLECTABLES, activeCosmetics, collect, collectableForCandy, type CollectableKind } from "../dlc/logic";
+import { setXmas, xmas, xmasOn } from "../dlc/state";
+import { CosmeticRig, XMAS_PK, preloadXmas } from "../dlc/cosmetics";
+import { HOUSE_LEVELS, drawHouseRoom, houseSpawn, isHouseLevel } from "../dlc/house";
+import { setMusicArea } from "../dlc/xmasMusic";
+
+type Partner = {
+  spr: Phaser.Physics.Arcade.Sprite;
+  hero: HeroId;
+  facing: number;
+  coyote: number;
+  jumpBuf: number;
+  attackT: number;
+  dropT: number;
+};
 
 type Mob = {
   spr: Phaser.Physics.Arcade.Sprite;
@@ -37,7 +54,7 @@ export class PlayScene extends Phaser.Scene {
   private goal: "exit" | "start" = "exit";
   private spawn = { x: 80, y: 80 };
   private exitPt = { x: 200, y: 80 };
-  private interactives: { kind: string; id: string; x: number; y: number }[] = [];
+  private interactives: { kind: string; id: string; x: number; y: number; label?: string }[] = [];
   private frozen = false;
   private trauma = 0;
   private secrets = 0;
@@ -60,14 +77,29 @@ export class PlayScene extends Phaser.Scene {
   private invulnT = 0;
   private speedT = 0;
   private dust!: Phaser.GameObjects.Particles.ParticleEmitter;
+  // DLC
+  private homeFrom: string | undefined;
+  private isHouse = false;
+  private partner: Partner | null = null;
+  private rigs: { rig: CosmeticRig; spr: () => Phaser.GameObjects.Sprite | null; facing: () => number }[] = [];
+  private camTarget: Phaser.GameObjects.Zone | null = null;
+  private darkness: Phaser.GameObjects.Rectangle | undefined;
 
   constructor() {
     super("play");
   }
 
-  init(data: { levelId?: string }) {
+  init(data: { levelId?: string; from?: string }) {
     const floor = useGame.getState().save.floor;
-    let id = data.levelId ?? hubIdFor(floor);
+    const start = ssi().startLevel;
+    ssi().startLevel = undefined;
+    let id = data.levelId ?? start ?? hubIdFor(floor);
+    this.homeFrom = data.from;
+    this.isHouse = isHouseLevel(id);
+    this.partner = null;
+    this.rigs = [];
+    this.camTarget = null;
+    this.darkness = undefined;
     if (id === "hub") id = hubIdFor(floor);
     this.levelId = id;
     this.mobs = [];
@@ -128,6 +160,7 @@ export class PlayScene extends Phaser.Scene {
     sheet("warlock", "/game/sprites/warlock.png");
     sheet("pickups", "/game/sprites/pickups.png");
     sheet("props", "/game/sprites/props.png");
+    if (xmasOn() || this.isHouse) preloadXmas(this);
   }
 
   create() {
@@ -151,7 +184,8 @@ export class PlayScene extends Phaser.Scene {
     this.score = 0;
     this.meter = 20;
 
-    this.level = LEVELS[this.levelId] ?? LEVELS["hub-1"]!;
+    this.level = LEVELS[this.levelId] ?? HOUSE_LEVELS[this.levelId] ?? LEVELS["hub-1"]!;
+    setMusicArea(this.isHouse ? "home" : this.level.isBoss ? "boss" : this.level.isHub ? "hub" : "level");
     this.label = this.level.name;
     const { w, h } = worldSize(this.level);
     this.physics.world.setBounds(0, 0, w, h);
@@ -189,8 +223,15 @@ export class PlayScene extends Phaser.Scene {
     this.dust.setDepth(5);
 
     this.makeAnims();
+    if (this.isHouse) {
+      const { things, darkness } = drawHouseRoom(this, this.levelId);
+      this.interactives.push(...things);
+      this.darkness = darkness;
+    }
     this.buildMap();
+    if (this.isHouse) this.spawn = houseSpawn(this.levelId, this.homeFrom);
     this.spawnPlayer();
+    this.bootXmas();
 
     this.physics.add.collider(this.player, this.solids);
     this.physics.add.collider(this.player, this.oneWay, undefined, (_p, plat) => {
@@ -214,13 +255,15 @@ export class PlayScene extends Phaser.Scene {
     });
 
     const cam = this.cameras.main;
-    cam.startFollow(this.player, true, 0.14, 0.1);
+    cam.startFollow(this.camTarget ?? this.player, true, 0.14, 0.1);
     cam.setBounds(0, 0, w, Math.max(h, 720));
     cam.setDeadzone(140, 64);
     cam.fadeIn(250, 20, 12, 8);
 
     this.events.once("shutdown", () => {
       this.mobs.length = 0;
+      this.rigs.forEach((r) => r.rig.destroy());
+      this.rigs = [];
     });
 
     emitGame({ t: "ready" });
@@ -272,7 +315,15 @@ export class PlayScene extends Phaser.Scene {
     const x = tx * TILE + TILE / 2;
     const y = ty * TILE + TILE / 2;
     let img: Phaser.GameObjects.GameObject;
-    if (this.level.isHub) {
+    if (this.isHouse) {
+      // Cuboe and Cubro's Home: wood floor (#), invisible walls (|) and furniture tops (=)
+      const ch = this.level.rows[ty]?.[tx];
+      if (ch === "#") {
+        img = this.add.rectangle(x, y, TILE + 1, TILE + 1, 0x7a4426).setDepth(1);
+        this.add.rectangle(x, y - TILE / 2 + 3, TILE + 1, 6, 0xe0a060).setDepth(1);
+        this.add.rectangle(x - TILE / 2 + 1, y, 2, TILE, 0x4a2a18).setDepth(1);
+      } else img = this.add.rectangle(x, y, TILE, TILE, 0x000000, 0);
+    } else if (this.level.isHub) {
       const rec = this.add.rectangle(x, y, TILE + 1, TILE + 1, 0x3a2214).setDepth(1);
       this.add.rectangle(x, y - TILE / 2 + 3, TILE + 1, 6, 0xc47a3a).setDepth(1);
       img = rec;
@@ -325,14 +376,20 @@ export class PlayScene extends Phaser.Scene {
 
   private buildMap() {
     const floor = useGame.getState().save.floor;
+    let candyIdx = 0;
     eachCell(this.level, (ch, tx, ty) => {
       const x = tx * TILE + TILE / 2;
       const y = ty * TILE + TILE / 2;
-      if (ch === "#") this.tileSpr(tx, ty, false);
+      if (ch === "#" || (ch === "|" && this.isHouse)) this.tileSpr(tx, ty, false);
       else if (ch === "=") this.tileSpr(tx, ty, true);
       else if (ch === "S") this.spawn = { x: Math.max(x, 96), y: y - 8 };
       else if (ch === "X") this.exitPt = { x, y };
-      else if (ch === "c" || ch === "l") this.dropPickup(x, y, ch === "l" ? 1 : 0, 20);
+      else if (ch === "c" || ch === "l") {
+        const xk = this.xmasLevel() ? collectableForCandy(candyIdx) : null;
+        candyIdx++;
+        if (xk) this.dropXmas(x, y, xk);
+        else this.dropPickup(x, y, ch === "l" ? 1 : 0, 20);
+      }
       else if (ch === "g") {
         this.dropPickup(x, y, 3, 50);
         this.interactives.push({ kind: "giver", id: "g", x, y });
@@ -377,6 +434,184 @@ export class PlayScene extends Phaser.Scene {
     if (!this.level.isHub && !this.level.isBoss) {
       this.add.sprite(this.exitPt.x, this.exitPt.y - 16, "props", 1).setDisplaySize(56, 72).setDepth(2);
     }
+    // DLC: one Christmas tree collectable per room, a little before the exit door
+    if (this.xmasLevel()) this.dropXmas(Math.max(TILE * 2, this.exitPt.x - TILE * 3), this.exitPt.y - 24, "tree");
+  }
+
+  /* ---------------- 'Tis the Seasones DLC ---------------- */
+
+  private xmasLevel() {
+    return xmasOn() && !this.level.isHub && !this.level.isBoss && !this.isHouse;
+  }
+
+  private dropXmas(x: number, y: number, kind: CollectableKind) {
+    const info = COLLECTABLES[kind];
+    const s = this.pickups.create(x, y, XMAS_PK, info.frame) as Phaser.Physics.Arcade.Sprite;
+    s.setDisplaySize(kind === "tree" ? 46 : 38, kind === "tree" ? 46 : 38);
+    (s.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+    s.setData("value", info.points);
+    s.setData("xmas", kind);
+    this.tweens.add({ targets: s, y: y - 6, yoyo: true, duration: 700, repeat: -1, ease: "Sine.easeInOut" });
+  }
+
+  private bootXmas() {
+    const on = xmasOn();
+    const coop = on && xmas().coop;
+    setCoopInput(coop);
+    if (!on && !this.isHouse) return;
+    if (coop) this.spawnPartner();
+    this.refreshCosmetics();
+    const onPost = (_t: number, delta: number) => {
+      for (const r of this.rigs) {
+        const spr = r.spr();
+        if (!spr?.active) continue;
+        const body = spr.body as Phaser.Physics.Arcade.Body;
+        r.rig.update(Math.min(delta, 50) / 1000, r.facing(), !(body.blocked.down || body.touching.down));
+      }
+    };
+    this.events.on("postupdate", onPost);
+    this.events.once("shutdown", () => this.events.off("postupdate", onPost));
+    // gentle snowfall everywhere the DLC is on (not inside the house)
+    if (on && !this.isHouse) {
+      this.add
+        .particles(0, 0, "px", {
+          x: { min: 0, max: 1280 },
+          y: -10,
+          lifespan: 7000,
+          speedY: { min: 30, max: 70 },
+          speedX: { min: -15, max: 15 },
+          scale: { start: 1, end: 0.6 },
+          alpha: { start: 0.75, end: 0.2 },
+          frequency: 90,
+          maxAliveParticles: 90,
+        })
+        .setScrollFactor(0)
+        .setDepth(12);
+    }
+  }
+
+  /** (Re)build the cosmetics drawn on P1/P2 — called after equipping at the pumpkin station. */
+  refreshCosmetics() {
+    this.rigs.forEach((r) => r.rig.destroy());
+    this.rigs = [];
+    if (!this.player) return;
+    if (!this.textures.exists(XMAS_PK)) return;
+    const add = (hero: HeroId, spr: () => Phaser.GameObjects.Sprite | null, facing: () => number) => {
+      const ids = activeCosmetics(xmas(), hero);
+      const target = spr();
+      if (!ids.length || !target) return;
+      this.rigs.push({ rig: new CosmeticRig(this, target, hero, ids), spr, facing });
+    };
+    add(this.hero, () => this.player, () => this.facing);
+    if (this.partner) add(this.partner.hero, () => this.partner?.spr ?? null, () => this.partner?.facing ?? 1);
+  }
+
+  /** DLC: jump straight to Cuboe and Cubro's Home (pause/options menu). */
+  enterHouse() {
+    this.scene.restart({ levelId: "home-living" });
+  }
+
+  private spawnPartner() {
+    const hero: HeroId = this.hero === "cuboe" ? "cubro" : "cuboe";
+    const spr = this.physics.add.sprite(this.spawn.x + 56, this.spawn.y, `${hero}-idle`, 0);
+    spr.setDisplaySize(64, 64);
+    spr.setCollideWorldBounds(true);
+    const body = spr.body as Phaser.Physics.Arcade.Body;
+    body.setGravityY(1900);
+    body.setMaxVelocity(780, 1100);
+    body.setSize(54, 78).setOffset(37, 42);
+    spr.play(`${hero}-idle`);
+    spr.setDepth(6);
+    const p: Partner = { spr, hero, facing: 1, coyote: 0, jumpBuf: 0, attackT: 0, dropT: 0 };
+    this.partner = p;
+    this.physics.add.collider(spr, this.solids);
+    this.physics.add.collider(spr, this.oneWay, undefined, (_p, plat) => {
+      if (p.dropT > 0) return false;
+      const pb = (plat as Phaser.Physics.Arcade.Sprite).body as Phaser.Physics.Arcade.StaticBody;
+      return body.velocity.y >= 0 && body.bottom <= pb.top + 8;
+    });
+    this.physics.add.overlap(spr, this.pickups, (_p, pk) => this.grab(pk as Phaser.Physics.Arcade.Sprite));
+    this.physics.add.overlap(spr, this.shots, (_p, sh) => {
+      const s = sh as Phaser.Physics.Arcade.Sprite;
+      if (s.getData("friendly")) return;
+      s.destroy();
+      this.hurt(1);
+    });
+    this.camTarget = this.add.zone(this.spawn.x, this.spawn.y, 1, 1);
+    this.add
+      .text(0, 0, "P2", { fontFamily: "Lilita One, Impact, sans-serif", fontSize: "14px", color: "#3ecf8e", stroke: "#140c0a", strokeThickness: 4 })
+      .setOrigin(0.5)
+      .setDepth(9)
+      .setName("p2tag");
+  }
+
+  private controlPartner(dt: number) {
+    const p = this.partner;
+    if (!p || !p.spr.active) return;
+    const a = readActionsP2();
+    const body = p.spr.body as Phaser.Physics.Arcade.Body;
+    const grounded = body.blocked.down || body.touching.down;
+    p.coyote = grounded ? 0.11 : Math.max(0, p.coyote - dt);
+    p.jumpBuf = a.jumpPressed ? 0.13 : Math.max(0, p.jumpBuf - dt);
+    if (p.attackT > 0) p.attackT -= dt;
+    if (p.dropT > 0) p.dropT -= dt;
+    if (a.moveX !== 0) p.facing = a.moveX;
+    p.spr.setFlipX(p.facing < 0);
+    if (a.down && a.jumpPressed && grounded) p.dropT = 0.22;
+    const run = a.run || p.hero === "cubro";
+    const max = run ? (p.hero === "cubro" ? 560 : 480) : 260;
+    if (a.moveX !== 0) body.setAccelerationX(a.moveX * (grounded ? 3200 : 1800));
+    else {
+      body.setAccelerationX(0);
+      body.setVelocityX(body.velocity.x * (grounded ? 0.78 : 0.94));
+    }
+    if (Math.abs(body.velocity.x) > max) body.setVelocityX(max * Math.sign(body.velocity.x));
+    const vy = body.velocity.y;
+    body.setGravityY(vy > 0 ? 3400 : vy > -90 ? 1200 : 1900);
+    if (p.jumpBuf > 0 && p.coyote > 0 && p.dropT <= 0) {
+      body.setVelocityY(p.hero === "cubro" ? -820 : -760);
+      p.coyote = 0;
+      p.jumpBuf = 0;
+      sfx.jump();
+    }
+    if (!a.jump && body.velocity.y < 0) body.setVelocityY(body.velocity.y * 0.52);
+    if (a.attackPressed && p.attackT <= 0) {
+      p.attackT = 0.22;
+      p.spr.play(`${p.hero}-attack`, true);
+      sfx.attack();
+      const hx = p.spr.x + p.facing * (p.hero === "cubro" ? 54 : 42);
+      this.mobs.forEach((m) => {
+        if (m.spr.active && Phaser.Math.Distance.Between(hx, p.spr.y, m.spr.x, m.spr.y) < 50) this.hitMob(m, 1);
+      });
+    }
+    // stomp / bump enemies
+    if (this.hurtT <= 0 && this.invulnT <= 0) {
+      for (const m of this.mobs) {
+        if (!m.spr.active || m.kind === "boss") continue;
+        if (Phaser.Math.Distance.Between(p.spr.x, p.spr.y, m.spr.x, m.spr.y) >= 40) continue;
+        if (body.velocity.y > 80 && p.spr.y < m.spr.y) {
+          body.setVelocityY(-560);
+          this.hitMob(m, 1);
+        } else {
+          this.hurt(1);
+          body.setVelocity(-p.facing * 220, -240);
+        }
+        break;
+      }
+    }
+    if (p.attackT <= 0) {
+      const key = !grounded ? `${p.hero}-jump` : Math.abs(body.velocity.x) > 40 ? `${p.hero}-run` : `${p.hero}-idle`;
+      if (p.spr.anims.currentAnim?.key !== key) p.spr.play(key, true);
+    }
+    // leash: P2 can't get lost off-screen or fall out
+    const far = Math.abs(p.spr.x - this.player.x) > 1100 || Math.abs(p.spr.y - this.player.y) > 640;
+    if (far || p.spr.y > worldSize(this.level).h + 40) {
+      p.spr.setPosition(this.player.x - this.facing * 40, this.player.y - 20);
+      body.setVelocity(0, 0);
+    }
+    if (this.camTarget) this.camTarget.setPosition((this.player.x + p.spr.x) / 2, (this.player.y + p.spr.y) / 2);
+    const tag = this.children.getByName("p2tag") as Phaser.GameObjects.Text | null;
+    tag?.setPosition(p.spr.x, p.spr.y - 48);
   }
 
   private dropPickup(x: number, y: number, frame: number, value: number) {
@@ -466,6 +701,7 @@ export class PlayScene extends Phaser.Scene {
       return;
     }
     this.controlPlayer(actions, dt);
+    if (this.partner) this.controlPartner(dt);
     this.tickMobs();
     this.tickGoal();
     this.tickInteract(actions);
@@ -959,6 +1195,8 @@ export class PlayScene extends Phaser.Scene {
 
   private grab(pk: Phaser.Physics.Arcade.Sprite) {
     const v = Number(pk.getData("value") ?? 20);
+    const xk = pk.getData("xmas") as CollectableKind | undefined;
+    if (xk) setXmas((s) => collect(s, xk));
     this.addCombo(v);
     useGame.getState().persist({ candyBux: useGame.getState().save.candyBux + (v >= 50 ? 50 : 5) });
     this.pop(pk.x, pk.y, `+${v}`);
@@ -1077,6 +1315,11 @@ export class PlayScene extends Phaser.Scene {
       tv: "It's Me  ·  Up",
     };
     this.prompt = names[nearest.kind] ?? "Up";
+    if (nearest.kind.startsWith("home-")) {
+      this.prompt = `${nearest.label ?? "Look"}  ·  Up`;
+      if (actions.upPressed) this.useHouseThing(nearest);
+      return;
+    }
     if (nearest.kind === "metroid" && actions.attackPressed) {
       this.metroidHit = true;
       this.unlockLore("fake-cuboe");
@@ -1102,6 +1345,38 @@ export class PlayScene extends Phaser.Scene {
     }
     if (nearest.kind === "boss") this.tryBoss();
     if (nearest.kind === "elevator") this.tryElevator();
+  }
+
+  private useHouseThing(it: { kind: string; id: string; x: number; y: number; label?: string }) {
+    if (it.kind === "home-door") {
+      sfx.door();
+      this.frozen = true;
+      this.cameras.main.fadeOut(160, 20, 12, 8);
+      this.time.delayedCall(170, () => this.scene.restart({ levelId: it.id, from: this.levelId }));
+    } else if (it.kind === "home-menu") {
+      sfx.door();
+      this.frozen = true;
+      emitGame({ t: "title" });
+    } else if (it.kind === "home-switch") {
+      sfx.ui();
+      const d = this.darkness;
+      if (d) d.setVisible(!d.visible);
+      const nub = (this as unknown as { __switchNub?: Phaser.GameObjects.Rectangle }).__switchNub;
+      nub?.setY(d?.visible ? nub.y + 12 : nub.y - 12);
+      this.pop(it.x, it.y - 40, d?.visible ? "Lights off" : "Lights on");
+    } else if (it.kind === "home-bed") {
+      sfx.ui();
+      this.cameras.main.fadeOut(400, 5, 3, 10);
+      this.time.delayedCall(700, () => this.cameras.main.fadeIn(500, 5, 3, 10));
+      this.hp = this.maxHp;
+      this.pop(it.x, it.y - 30, it.id === "cuboe" ? "Zzz... cozy" : "Zzz... rad dreams");
+    } else if (it.kind === "home-fire") {
+      sfx.ui();
+      this.pop(it.x, it.y - 60, "So warm!");
+    } else if (it.kind === "home-tree") {
+      sfx.win();
+      this.pop(it.x, it.y - 120, "Merry Christmas!");
+    }
   }
 
   private tryBoss() {
@@ -1238,6 +1513,27 @@ export class PlayScene extends Phaser.Scene {
       getYaw: () => self.player?.x ?? 0,
       getSpeed: () => Math.abs((self.player?.body as Phaser.Physics.Arcade.Body | undefined)?.velocity.x ?? 0),
       setKeys: (codes: string[]) => setInjected(codes),
+      // DLC test hooks (used by scripts/xmas-dlc-smoke.mjs)
+      dlc: {
+        goRoom: (id: string, from?: string) => self.scene.restart({ levelId: id, from }),
+        teleport: (x: number, y: number) => self.player?.setPosition(x, y),
+        zoom: (z: number) => self.cameras.main.setZoom(z),
+        state: () => ({
+          level: self.levelId,
+          x: self.player?.x ?? 0,
+          y: self.player?.y ?? 0,
+          score: self.score,
+          prompt: self.prompt,
+          partner: self.partner ? { hero: self.partner.hero, x: self.partner.spr.x, y: self.partner.spr.y } : null,
+          cosmetics: self.rigs.length,
+          xmasPickups: self.pickups?.getChildren().filter((c) => (c as Phaser.GameObjects.Sprite).getData("xmas")).length ?? 0,
+          xmasList: (self.pickups?.getChildren() ?? [])
+            .map((c) => c as Phaser.GameObjects.Sprite)
+            .filter((c) => c.getData("xmas"))
+            .map((c) => ({ kind: String(c.getData("xmas")), x: c.x, y: c.y })),
+          things: self.interactives.map((i) => ({ kind: i.kind, id: i.id, x: i.x, y: i.y, label: i.label })),
+        }),
+      },
     };
   }
 }
@@ -1248,6 +1544,23 @@ declare global {
       getYaw: () => number;
       getSpeed: () => number;
       setKeys?: (codes: string[]) => void;
+      dlc?: {
+        goRoom: (id: string, from?: string) => void;
+        teleport: (x: number, y: number) => void;
+        zoom: (z: number) => void;
+        state: () => {
+          level: string;
+          x: number;
+          y: number;
+          score: number;
+          prompt: string;
+          partner: { hero: string; x: number; y: number } | null;
+          cosmetics: number;
+          xmasPickups: number;
+          xmasList: { kind: string; x: number; y: number }[];
+          things: { kind: string; id: string; x: number; y: number; label?: string }[];
+        };
+      };
     };
   }
 }

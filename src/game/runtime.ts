@@ -15,6 +15,8 @@ export type SsiSlot = {
   prevUp: boolean;
   prevPause: boolean;
   prevSpecial: boolean;
+  /** One-shot first room for the next boot (DLC: Cuboe and Cubro's Home). */
+  startLevel?: string;
 };
 
 function emptySlot(): SsiSlot {

@@ -10,6 +10,36 @@ const DOWN = new Set(["ArrowDown", "KeyS"]);
 const PAUSE = new Set(["Escape", "KeyP"]);
 const SPECIAL = new Set(["KeyQ", "KeyC"]);
 
+/*
+ * 'Tis the Seasones DLC local co-op (2 players). While co-op is on:
+ *   P1 keeps WASD / Space / K / Z / J / Q / C / Left Shift / L (no arrows).
+ *   P2 uses Arrows to move/up/down, Enter or Numpad0 to jump,
+ *   Slash or Numpad1 to attack, Right Shift to run.
+ *   Gamepad 1 drives P1, gamepad 2 drives P2.
+ * With co-op off nothing here changes the base controls.
+ */
+let coop = false;
+const ARROWS = new Set(["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown"]);
+const P2 = {
+  left: "ArrowLeft",
+  right: "ArrowRight",
+  up: "ArrowUp",
+  down: "ArrowDown",
+  jump: new Set(["Enter", "NumpadEnter", "Numpad0"]),
+  attack: new Set(["Slash", "Numpad1"]),
+  run: new Set(["ShiftRight"]),
+};
+const p2Prev = { jump: false, attack: false, up: false };
+
+export function setCoopInput(on: boolean) {
+  coop = on;
+  p2Prev.jump = p2Prev.attack = p2Prev.up = false;
+}
+
+export function coopInput() {
+  return coop;
+}
+
 function allHeld() {
   const st = ssi();
   const s = new Set(st.held);
@@ -39,7 +69,8 @@ export function bootInput() {
       DOWN.has(e.code) ||
       PAUSE.has(e.code) ||
       SPECIAL.has(e.code) ||
-      RUN.has(e.code)
+      RUN.has(e.code) ||
+      (coop && (P2.jump.has(e.code) || P2.attack.has(e.code)))
     ) {
       e.preventDefault();
     }
@@ -87,6 +118,10 @@ export interface Actions {
 export function readActions(): Actions {
   const st = ssi();
   const h = allHeld();
+  if (coop) {
+    ARROWS.forEach((c) => h.delete(c));
+    h.delete("ShiftRight");
+  }
   let moveX = 0;
   if ([...LEFT].some((c) => h.has(c))) moveX -= 1;
   if ([...RIGHT].some((c) => h.has(c))) moveX += 1;
@@ -118,9 +153,10 @@ export function readActions(): Actions {
   return actions;
 }
 
-export function pollGamepad(actions: Actions) {
+export function pollGamepad(actions: Actions, only?: number) {
   const pads = navigator.getGamepads?.() ?? [];
-  for (const pad of pads) {
+  const list = coop ? [pads[only ?? 0] ?? null] : pads;
+  for (const pad of list) {
     if (!pad) continue;
     const ax = pad.axes[0] ?? 0;
     const mag = Math.hypot(ax, pad.axes[1] ?? 0);
@@ -146,4 +182,34 @@ export function pollGamepad(actions: Actions) {
     if (pad.buttons[13]?.pressed) actions.down = true;
     if (pad.buttons[1]?.pressed) actions.run = true;
   }
+}
+
+/** Player 2 actions (co-op only). No specials or pause for P2. */
+export function readActionsP2(): Actions {
+  const h = allHeld();
+  let moveX = 0;
+  if (h.has(P2.left)) moveX -= 1;
+  if (h.has(P2.right)) moveX += 1;
+  const jump = [...P2.jump].some((c) => h.has(c));
+  const attack = [...P2.attack].some((c) => h.has(c));
+  const up = h.has(P2.up);
+  const a: Actions = {
+    moveX,
+    jump,
+    jumpPressed: jump && !p2Prev.jump,
+    attack,
+    attackPressed: attack && !p2Prev.attack,
+    run: [...P2.run].some((c) => h.has(c)),
+    up,
+    upPressed: up && !p2Prev.up,
+    down: h.has(P2.down),
+    pausePressed: false,
+    specialPressed: false,
+  };
+  pollGamepad(a, 1);
+  a.pausePressed = false;
+  p2Prev.jump = a.jump;
+  p2Prev.attack = a.attack;
+  p2Prev.up = a.up;
+  return a;
 }

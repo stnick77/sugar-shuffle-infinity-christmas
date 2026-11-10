@@ -23,7 +23,9 @@ export type GameEvent =
   | { t: "win"; ending: string }
   | { t: "hub" }
   | { t: "interact"; kind: string; id: string }
-  | { t: "ready" };
+  | { t: "ready" }
+  /** DLC: the house's Main Menu door. */
+  | { t: "title" };
 
 type Fn = (e: GameEvent) => void;
 
