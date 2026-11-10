@@ -178,17 +178,17 @@ export const BOSSES: Record<
 export const COMBOS = {
   cuboe: [
     { id: "aeraste", name: "Aeraste", input: "Jump on an enemy", desc: "Stomp to bounce-kill." },
-    { id: "laser", name: "Spinning Laser", input: "Y + B with meter", desc: "Lasers spin in all directions." },
-    { id: "shield", name: "Forward Shield", input: "Hold X", desc: "Protective shield for 4 seconds." },
-    { id: "blackhole", name: "Black Hole", input: "Up + X with meter", desc: "Pulls enemies in." },
-    { id: "beams", name: "Two-Side Energy Beam", input: "Up + Y with meter", desc: "Fires beams both ways." },
+    { id: "laser", name: "Spinning Laser", input: "J in the air (35 meter)", desc: "Lasers spin in all directions." },
+    { id: "shield", name: "Forward Shield", input: "Q (20 meter)", desc: "Protective shield for 5 seconds." },
+    { id: "blackhole", name: "Black Hole", input: "Up + Q (40 meter)", desc: "Pulls enemies in." },
+    { id: "beams", name: "Two-Side Energy Beam", input: "Up + J (30 meter)", desc: "Fires beams both ways." },
   ],
   cubro: [
-    { id: "tornado", name: "Tornado Spin", input: "Attack while skating", desc: "Become a chocolate tornado." },
-    { id: "rocket", name: "Rocket Shot", input: "Y + A", desc: "Launch the skateboard like a missile." },
-    { id: "barrier", name: "Saiyan Barrier", input: "Special with meter", desc: "A barrier that lasts several seconds." },
-    { id: "infinity", name: "Infinity Boost", input: "Up + X + Y", desc: "A 8-second super speed gem." },
-    { id: "burst", name: "Super Saiyan Burst", input: "Up + B + Y", desc: "Energy burst that clears nearby foes." },
+    { id: "tornado", name: "Tornado Spin", input: "J while mach running", desc: "Become a chocolate tornado." },
+    { id: "rocket", name: "Rocket Shot", input: "Shift + J (25 meter)", desc: "Launch the skateboard like a missile." },
+    { id: "barrier", name: "Saiyan Barrier", input: "Q (25 meter)", desc: "A barrier that lasts several seconds." },
+    { id: "infinity", name: "Infinity Boost", input: "Up + Q (50 meter)", desc: "A 8-second super speed gem." },
+    { id: "burst", name: "Super Saiyan Burst", input: "Up + J (40 meter)", desc: "Energy burst that clears nearby foes." },
   ],
 };
 
