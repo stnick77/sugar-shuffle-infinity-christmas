@@ -1398,10 +1398,9 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private wireControlsTest() {
-    const self = this;
     window.__controlsTest = {
-      getYaw: () => self.player?.x ?? 0,
-      getSpeed: () => Math.abs((self.player?.body as Phaser.Physics.Arcade.Body | undefined)?.velocity.x ?? 0),
+      getYaw: () => this.player?.x ?? 0,
+      getSpeed: () => Math.abs((this.player?.body as Phaser.Physics.Arcade.Body | undefined)?.velocity.x ?? 0),
       setKeys: (codes: string[]) => setInjected(codes),
     };
   }
