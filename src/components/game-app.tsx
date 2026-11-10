@@ -190,6 +190,18 @@ export function GameApp() {
     setScreen("playing");
   };
 
+  useEffect(() => {
+    if (screen !== "pause") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || (e.code !== "Escape" && e.code !== "KeyP")) return;
+      e.preventDefault();
+      sfx.ui();
+      resume();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const toHub = () => {
     void import("@/game/phaserGame").then((m) => {
       const play = m.getPlay();
