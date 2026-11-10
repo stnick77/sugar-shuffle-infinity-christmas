@@ -783,10 +783,10 @@ function Fit({ onDone }: { onDone: () => void }) {
   const [ok, setOk] = useState(false);
   const [held, setHeld] = useState(0);
   useEffect(() => {
-    if (!ok) return;
+    if (!ok || held >= 8) return;
     const id = window.setInterval(() => setHeld((h) => h + 1), 200);
     return () => window.clearInterval(id);
-  }, [ok]);
+  }, [ok, held]);
   useEffect(() => {
     if (held < 8) return;
     const save = useGame.getState().save;
@@ -800,6 +800,8 @@ function Fit({ onDone }: { onDone: () => void }) {
         className="mx-auto mt-4 flex h-32 w-32 items-center justify-center rounded-full border border-cream/20 bg-surface font-display text-2xl"
         onPointerDown={() => setOk(true)}
         onPointerUp={() => setOk(false)}
+        onPointerLeave={() => setOk(false)}
+        onPointerCancel={() => setOk(false)}
       >
         {ok ? "FIT" : "POSE"}
       </button>
