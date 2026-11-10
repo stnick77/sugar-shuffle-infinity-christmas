@@ -349,7 +349,7 @@ function HudBar() {
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      <div className="mr-12 flex items-center gap-2">
         {hud.pizza && (
           <div className="rounded-[18px] border border-candy/40 bg-candy/20 px-3 py-2 font-display text-xl tabular-nums text-candy">
             {formatTime(hud.timer)}
