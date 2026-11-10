@@ -295,7 +295,7 @@ export function GameApp() {
               return;
             }
             if (!save.promo.includes(hit.reward)) persist({ promo: [...save.promo, hit.reward] });
-            setCodeMsg(`Unlocked — ${hit.label}`);
+            setCodeMsg(hit.soon ? `Saved — ${hit.label} (coming in a future update)` : `Unlocked — ${hit.label}`);
             sfx.win();
           }}
         />
@@ -553,7 +553,10 @@ function Codes({
       {msg && <p className="mt-2 text-sm text-mint">{msg}</p>}
       <ul className="mt-4 space-y-1 text-sm text-cream-dim">
         {PROMO_CODES.map((p) => (
-          <li key={p.code}>{save.promo.includes(p.reward) ? p.label : "••••"}</li>
+          <li key={p.code}>
+            {save.promo.includes(p.reward) ? p.label : "••••"}
+            {p.soon ? " · coming soon" : ""}
+          </li>
         ))}
       </ul>
       <Btn tone="ghost" onClick={onClose}>

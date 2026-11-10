@@ -212,16 +212,17 @@ export const ENDINGS = [
   { id: "true", name: "True", how: "Collect every other ending. The Warlock becomes a friend." },
 ];
 
-export const PROMO_CODES = [
-  { code: "SYIOX", reward: "secret-sylux", label: "Unlocks secret boss Sylux" },
+/** Codes marked `soon` are saved now; their unlock is not built yet (future update). */
+export const PROMO_CODES: { code: string; reward: string; label: string; soon?: boolean }[] = [
+  { code: "SYIOX", reward: "secret-sylux", label: "Unlocks secret boss Sylux", soon: true },
   { code: "WERE CUBRO", reward: "were-cubro", label: "Were-Cubro palette" },
   { code: "WERE CUBOE", reward: "were-cuboe", label: "Were-Cuboe palette" },
-  { code: "METROID", reward: "metroid", label: "Secret Metroid arena" },
-  { code: "MARIONETTE", reward: "marionette", label: "Secret boss Marionette" },
-  { code: "MOTHERBRAIN", reward: "mother-brain", label: "Secret boss Mother Brain" },
-  { code: "MRGAW", reward: "mrgaw", label: "Mr. Game and Watch" },
-  { code: "OCTAVIO", reward: "octavio", label: "DJ Octavio Mecha 2.0" },
-  { code: "INKLING", reward: "inkling", label: "Inkling Squid" },
+  { code: "METROID", reward: "metroid", label: "Secret Metroid arena", soon: true },
+  { code: "MARIONETTE", reward: "marionette", label: "Secret boss Marionette", soon: true },
+  { code: "MOTHERBRAIN", reward: "mother-brain", label: "Secret boss Mother Brain", soon: true },
+  { code: "MRGAW", reward: "mrgaw", label: "Mr. Game and Watch", soon: true },
+  { code: "OCTAVIO", reward: "octavio", label: "DJ Octavio Mecha 2.0", soon: true },
+  { code: "INKLING", reward: "inkling", label: "Inkling Squid", soon: true },
 ];
 
 export const MINIGAMES = [
