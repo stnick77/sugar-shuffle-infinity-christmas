@@ -501,7 +501,14 @@ export class PlayScene extends Phaser.Scene {
       tx = end;
     }
     // DLC: one Christmas tree collectable per room, a little before the exit door
-    if (this.xmasLevel()) this.dropXmas(Math.max(TILE * 2, this.exitPt.x - TILE * 3), this.exitPt.y - 24, "tree");
+    // (on the first tile with floor under it, so it never hangs over a gap)
+    if (this.xmasLevel()) {
+      const ex = Math.floor(this.exitPt.x / TILE);
+      const below = this.level.rows[Math.floor(this.exitPt.y / TILE) + 1] ?? "";
+      let tx = Math.max(2, ex - 3);
+      while (tx < ex - 1 && !"#=".includes(below[tx] ?? ".")) tx++;
+      this.dropXmas(tx * TILE + TILE / 2, this.exitPt.y - 24, "tree");
+    }
   }
 
   /* ---------------- 'Tis the Seasones DLC ---------------- */
