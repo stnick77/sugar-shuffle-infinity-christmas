@@ -80,7 +80,7 @@ export function XmasButton() {
       data-testid="dlc-button"
       aria-pressed={on}
       onClick={() => {
-        unlockAudio();
+        unlockAudio(useGame.getState().save.settings);
         sfx.ui();
         setXmas(toggleDlc);
         if (!on) {
@@ -198,7 +198,7 @@ export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; 
   const pick = (track: string) => {
     sfx.ui();
     setXmas((s) => ({ ...s, track, music: true }));
-    unlockAudio();
+    unlockAudio(useGame.getState().save.settings);
     restartMusic();
   };
   const SongBtn = ({ id, title, note, disabled }: { id: string; title: string; note?: string; disabled?: boolean }) => (
@@ -231,7 +231,7 @@ export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; 
               onClick={() => {
                 sfx.ui();
                 setXmas((s) => ({ ...s, music: !s.music }));
-                unlockAudio();
+                unlockAudio(useGame.getState().save.settings);
                 restartMusic();
               }}
             >
