@@ -29,6 +29,7 @@ export function bootInput() {
   st.prevSpecial = false;
 
   const onDown = (e: KeyboardEvent) => {
+    if (isTyping(e.target)) return;
     st.held.add(e.code);
     if (
       LEFT.has(e.code) ||
@@ -56,6 +57,22 @@ export function bootInput() {
     },
     { signal: ac.signal },
   );
+}
+
+/** Text fields (promo codes) keep their keys instead of feeding the game. */
+function isTyping(target: EventTarget | null) {
+  const el = target as HTMLElement | null;
+  if (!el || !el.tagName) return false;
+  return el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable;
+}
+
+/** Remove the window key listeners and drop any held keys (called when the game is destroyed). */
+export function stopInput() {
+  const st = ssi();
+  st.inputAbort?.abort();
+  st.inputAbort = null;
+  st.held.clear();
+  st.injected.clear();
 }
 
 export function setTouch(code: string, down: boolean) {
