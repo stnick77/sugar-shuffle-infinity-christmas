@@ -13,7 +13,11 @@ function PadBtn({
 }) {
   const press = (e: PointerEvent) => {
     e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* pointer already gone; the press still counts */
+    }
     setTouch(code, true);
   };
   const release = (e: PointerEvent) => {
@@ -38,17 +42,20 @@ function PadBtn({
   );
 }
 
-/** On-screen controls. Only shown on touch screens; keyboard and gamepad players don't need them. */
+/**
+ * On-screen controls. Only shown on touch screens; keyboard and gamepad players don't need them.
+ * They press P1's keys (WASD, not the arrows) so they still drive P1 when DLC co-op gives the arrows to P2.
+ */
 export function TouchPad() {
   return (
     <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden items-end justify-between gap-2 p-2 pb-[max(10px,env(safe-area-inset-bottom))] pointer-coarse:flex md:p-4">
       <div className="pointer-events-auto grid grid-cols-3 gap-1.5 sm:gap-2">
         <span />
-        <PadBtn code="ArrowUp" label="Up" />
+        <PadBtn code="KeyW" label="Up" />
         <span />
-        <PadBtn code="ArrowLeft" label="◀" />
-        <PadBtn code="ArrowDown" label="Down" className="text-[10px] sm:text-xs" />
-        <PadBtn code="ArrowRight" label="▶" />
+        <PadBtn code="KeyA" label="◀" />
+        <PadBtn code="KeyS" label="Down" className="text-[10px] sm:text-xs" />
+        <PadBtn code="KeyD" label="▶" />
       </div>
       <div className="pointer-events-auto grid grid-cols-3 gap-1.5 sm:gap-2">
         <PadBtn code="KeyQ" label="Spec" className="bg-mint/35 text-[10px] sm:text-xs" />
