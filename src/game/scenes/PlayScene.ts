@@ -1124,8 +1124,9 @@ export class PlayScene extends Phaser.Scene {
       this.startMark.setText("RUN BACK!").setColor("#ff4d7a");
       this.tweens.add({ targets: this.startMark, scale: 1.25, yoyo: true, repeat: -1, duration: 320 });
     }
+    // Ambush a few tiles back along the way home, not on top of the player at the door.
     for (let i = 0; i < 3; i++) {
-      this.spawnMob(this.exitPt.x - 80 - i * 70, this.exitPt.y - 8, i === 1 ? "nincube" : "boxguy");
+      this.spawnMob(this.exitPt.x - 300 - i * 110, this.exitPt.y - 60, i === 1 ? "nincube" : "boxguy");
     }
   }
 
