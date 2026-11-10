@@ -14,6 +14,7 @@ import {
 import { onGame } from "@/game/bus";
 import { unlockAudio, startMusic, stopMusic, sfx, setSfxVolume, setMusicVolume } from "@/game/audio";
 import { COMBOS, ENDINGS, HEROES, LORE, MINIGAMES, PROMO_CODES, type HeroId, type Rank } from "@/game/data/world";
+import { LEVELS } from "@/game/data/levels";
 import { resetSave } from "@/game/save";
 import { HMR_EVENT } from "@/game/runtime";
 import { useGame, type Screen } from "@/store/game-store";
@@ -275,7 +276,7 @@ export function GameApp() {
         </Modal>
       )}
       {screen === "rank" && lastRank && (
-        <Modal title={lastRank.levelId}>
+        <Modal title={LEVELS[lastRank.levelId]?.name ?? lastRank.levelId}>
           <p className="font-display text-7xl text-candy">{lastRank.rank}</p>
           <p className="text-cream-dim">Score {lastRank.score.toLocaleString()}</p>
           <Btn onClick={toHub}>Back to hub</Btn>
