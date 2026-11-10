@@ -8,6 +8,9 @@ import { sfx } from "../audio";
 import { useGame } from "@/store/game-store";
 
 /** Candy bux paid for clearing a room, by rank. */
+/** Floor gaps this wide or narrower are real pits; wider ones keep a walkable trench floor. */
+const PIT_MAX_TILES = 4;
+
 const CLEAR_BUX: Record<string, number> = { P: 250, S: 200, A: 175, B: 150, C: 125, D: 100, F: 75 };
 
 type Mob = {
@@ -157,7 +160,10 @@ export class PlayScene extends Phaser.Scene {
     this.level = LEVELS[this.levelId] ?? LEVELS["hub-1"]!;
     this.label = this.level.name;
     const { w, h } = worldSize(this.level);
-    this.physics.world.setBounds(0, 0, w, h);
+    const open = !this.level.isHub && !this.level.isBoss;
+    // Rooms have an extra row below the camera so short gaps can be fallen through.
+    this.physics.world.setBounds(0, 0, w, open ? h + TILE : h);
+    this.physics.world.setBoundsCollision(true, true, true, !open);
 
     if (!this.textures.exists("px")) {
       const g = this.make.graphics({ x: 0, y: 0 });
@@ -385,6 +391,31 @@ export class PlayScene extends Phaser.Scene {
     });
     if (!this.level.isHub && !this.level.isBoss) {
       this.add.sprite(this.exitPt.x, this.exitPt.y - 16, "props", 1).setDisplaySize(56, 72).setDepth(2);
+      this.buildPits();
+    }
+  }
+
+  /** Short floor gaps become deadly pits (marked with goo); long ones get a trench floor under the camera. */
+  private buildPits() {
+    const rows = this.level.rows;
+    const ty = rows.length - 1;
+    const floor = rows[ty]!;
+    let tx = 0;
+    while (tx < floor.length) {
+      if (floor[tx] !== ".") {
+        tx++;
+        continue;
+      }
+      let end = tx;
+      while (end < floor.length && floor[end] === ".") end++;
+      const len = end - tx;
+      if (len > PIT_MAX_TILES) {
+        for (let i = tx; i < end; i++) this.tileSpr(i, ty + 1, false);
+      } else {
+        const x = (tx + len / 2) * TILE;
+        this.add.rectangle(x, (ty + 1) * TILE - 5, len * TILE, 10, 0x7a1f3d, 0.9).setDepth(1);
+      }
+      tx = end;
     }
   }
 
@@ -695,6 +726,10 @@ export class PlayScene extends Phaser.Scene {
     const now = this.time.now;
     for (const m of this.mobs) {
       if (!m.spr.active) continue;
+      if (m.spr.y > worldSize(this.level).h + TILE * 2) {
+        m.spr.destroy();
+        continue;
+      }
       const body = m.spr.body as Phaser.Physics.Arcade.Body;
       m.spr.setFlipX(m.dir < 0);
       if (m.kind === "boss") {
@@ -1001,16 +1036,22 @@ export class PlayScene extends Phaser.Scene {
         return;
       }
       this.hp = this.maxHp;
-      this.player.setPosition(this.spawn.x, this.spawn.y);
+      this.respawn();
     }
+  }
+
+  /** Back to the start, or to the exit door once Sugar Time is racing home (so a pit or death can't finish the room). */
+  private respawn() {
+    const at = this.goal === "start" ? { x: this.exitPt.x, y: this.exitPt.y - 8 } : this.spawn;
+    // reset() moves the body too; setPosition alone leaves it below the floor and it falls through.
+    (this.player.body as Phaser.Physics.Arcade.Body).reset(at.x, at.y);
   }
 
   private fallOut() {
     useGame.getState().persist({ pits: useGame.getState().save.pits + 1 });
     if (useGame.getState().save.pits >= 20) this.unlockLore("warlock");
     this.hurt(1);
-    this.player.setPosition(this.spawn.x, this.spawn.y);
-    (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+    if (!this.frozen) this.respawn();
   }
 
   private tickGoal() {
