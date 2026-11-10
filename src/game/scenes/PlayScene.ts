@@ -782,9 +782,12 @@ export class PlayScene extends Phaser.Scene {
       if (m.kind !== "cannon") body.setVelocityX(m.dir * spd);
       if (body.blocked.left) m.dir = 1;
       if (body.blocked.right) m.dir = -1;
-      if (m.kind === "cannon" && now > m.next) {
-        m.next = now + 1600;
-        this.shoot(m.spr.x + 24, m.spr.y, 1);
+      if (m.kind === "cannon") {
+        m.dir = this.player.x < m.spr.x ? -1 : 1;
+        if (now > m.next) {
+          m.next = now + 1600;
+          this.shoot(m.spr.x + m.dir * 24, m.spr.y, m.dir);
+        }
       }
       if (m.kind === "pump" && body.blocked.down && Math.random() < 0.01) body.setVelocityY(-420);
       if (this.hurtT <= 0 && this.shieldT <= 0 && this.invulnT <= 0 && this.player.active) {
