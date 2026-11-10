@@ -7,6 +7,9 @@ import { bootInput, pollGamepad, readActions, setInjected } from "../input";
 import { sfx } from "../audio";
 import { useGame } from "@/store/game-store";
 
+/** Candy bux paid for clearing a room, by rank. */
+const CLEAR_BUX: Record<string, number> = { P: 250, S: 200, A: 175, B: 150, C: 125, D: 100, F: 75 };
+
 type Mob = {
   spr: Phaser.Physics.Arcade.Sprite;
   kind: string;
@@ -334,9 +337,15 @@ export class PlayScene extends Phaser.Scene {
       else if (ch === "X") this.exitPt = { x, y };
       else if (ch === "c" || ch === "l") this.dropPickup(x, y, ch === "l" ? 1 : 0, 20);
       else if (ch === "g") {
-        this.dropPickup(x, y, 3, 50);
-        this.interactives.push({ kind: "giver", id: "g", x, y });
-        if (this.level.isHub) this.marker(x, y - 50, "400");
+        if (this.level.isHub) {
+          // Hub Candy Bux spot: a one-time +50 per hub, collected with Up.
+          const id = `giver-${this.levelId}`;
+          if (!useGame.getState().save.claimed.includes(id)) {
+            this.dropPickup(x, y, 3, 0);
+            this.interactives.push({ kind: "giver", id, x, y });
+            this.marker(x, y - 50, "+50");
+          }
+        } else this.dropPickup(x, y, 3, 50);
       } else if (ch === "b") this.spawnMob(x, y, "boxguy");
       else if (ch === "n") this.spawnMob(x, y, "nincube");
       else if (ch === "p") this.spawnMob(x, y, "pump");
@@ -959,6 +968,7 @@ export class PlayScene extends Phaser.Scene {
 
   private grab(pk: Phaser.Physics.Arcade.Sprite) {
     const v = Number(pk.getData("value") ?? 20);
+    if (v <= 0) return; // hub Candy Bux spot: claimed with Up, not by touch
     this.addCombo(v);
     useGame.getState().persist({ candyBux: useGame.getState().save.candyBux + (v >= 50 ? 50 : 5) });
     this.pop(pk.x, pk.y, `+${v}`);
@@ -1092,16 +1102,26 @@ export class PlayScene extends Phaser.Scene {
       emitGame({ t: "toast", text: "it's Me" });
       this.pop(nearest.x, nearest.y - 20, "it's Me");
     }
-    if (nearest.kind === "giver") {
-      useGame.getState().persist({ candyBux: useGame.getState().save.candyBux + 50 });
-      this.pop(nearest.x, nearest.y, "+50 BUX");
-    }
+    if (nearest.kind === "giver") this.claimGiver(nearest);
     if (nearest.kind === "rift") {
       this.unlockLore("rift");
       this.pop(nearest.x, nearest.y, "UNIVERSE RIFT");
     }
     if (nearest.kind === "boss") this.tryBoss();
     if (nearest.kind === "elevator") this.tryElevator();
+  }
+
+  private claimGiver(it: (typeof this.interactives)[0]) {
+    const save = useGame.getState().save;
+    this.interactives = this.interactives.filter((i) => i !== it);
+    if (save.claimed.includes(it.id)) return;
+    useGame.getState().persist({ candyBux: save.candyBux + 50, claimed: [...save.claimed, it.id] });
+    this.pop(it.x, it.y, "+50 BUX");
+    sfx.pickup();
+    this.pickups.getChildren().forEach((c) => {
+      const s = c as Phaser.Physics.Arcade.Sprite;
+      if (Math.abs(s.x - it.x) < 4) s.destroy();
+    });
   }
 
   private tryBoss() {
@@ -1145,7 +1165,10 @@ export class PlayScene extends Phaser.Scene {
     const completed = save.completed.includes(this.levelId) ? save.completed : [...save.completed, this.levelId];
     const ranks = { ...save.ranks, [this.levelId]: rank };
     if (save.highScore < this.score) useGame.getState().persist({ highScore: this.score });
-    useGame.getState().persist({ completed, ranks });
+    // Clearing a room pays candy bux so the 400-bux boss gate is reachable without farming.
+    const bonus = CLEAR_BUX[rank] ?? 75;
+    useGame.getState().persist({ completed, ranks, candyBux: useGame.getState().save.candyBux + bonus });
+    this.pop(this.player.x, this.player.y - 60, `+${bonus} BUX`);
     sfx.win();
     emitGame({ t: "rank", levelId: this.levelId, rank, score: this.score });
   }
