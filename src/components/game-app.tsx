@@ -20,7 +20,7 @@ import { useGame, type Screen } from "@/store/game-store";
 import { TouchPad } from "./touch-pad";
 
 function unlock() {
-  unlockAudio();
+  unlockAudio(useGame.getState().save.settings);
   startMusic();
   sfx.ui();
 }
