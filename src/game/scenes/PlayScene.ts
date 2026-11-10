@@ -634,6 +634,7 @@ export class PlayScene extends Phaser.Scene {
     if (Math.abs(body.velocity.x) > max) body.setVelocityX(max * Math.sign(body.velocity.x));
     const vy = body.velocity.y;
     body.setGravityY(vy > 0 ? 3400 : vy > -90 ? 1200 : 1900);
+    if (this.isHouse && grounded && a.moveX !== 0 && !a.jump) this.stepUp(p.spr, a.moveX);
     if (p.jumpBuf > 0 && p.coyote > 0 && p.dropT <= 0) {
       body.setVelocityY(p.hero === "cubro" ? -820 : -760);
       p.coyote = 0;
@@ -827,6 +828,8 @@ export class PlayScene extends Phaser.Scene {
     else if (vy > -90) body.setGravityY(1200);
     else body.setGravityY(1900);
 
+    if (this.isHouse && grounded && actions.moveX !== 0 && !actions.jump) this.stepUp(this.player, actions.moveX);
+
     if (this.jumpBuf > 0 && this.coyote > 0 && this.dropT <= 0) {
       body.setVelocityY(this.hero === "cubro" ? -820 : -760);
       this.coyote = 0;
@@ -849,6 +852,21 @@ export class PlayScene extends Phaser.Scene {
       else if (this.hero === "cubro" && promo.includes("were-cubro")) this.player.setTint(0xff6688);
       else this.player.clearTint();
     }
+  }
+
+  /** House stairs: walking into a one-tile step climbs it, so the staircases work like stairs. */
+  private stepUp(spr: Phaser.Physics.Arcade.Sprite, dir: number) {
+    const body = spr.body as Phaser.Physics.Arcade.Body;
+    if (!(dir > 0 ? body.blocked.right : body.blocked.left)) return;
+    const rows = this.level.rows;
+    const col = Math.floor((dir > 0 ? body.right + 2 : body.left - 2) / TILE);
+    const footRow = Math.floor((body.bottom - 2) / TILE);
+    const solid = (r: number) => rows[r]?.[col] === "#";
+    if (!solid(footRow) || solid(footRow - 1) || solid(footRow - 2)) return;
+    const lift = body.bottom - spr.y;
+    const vx = body.velocity.x;
+    body.reset(spr.x + dir * 6, footRow * TILE - lift - 1);
+    body.setVelocityX(vx || dir * 120);
   }
 
   private tickAnims() {
