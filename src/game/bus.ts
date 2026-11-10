@@ -14,6 +14,8 @@ export type GameEvent =
       rank: string;
       label: string;
       meter: number;
+      bossHp: number;
+      bossMax: number;
     }
   | { t: "toast"; text: string }
   | { t: "pause" }

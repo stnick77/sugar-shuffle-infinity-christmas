@@ -98,6 +98,8 @@ export function GameApp() {
           rank: e.rank,
           label: e.label,
           meter: e.meter,
+          bossHp: e.bossHp,
+          bossMax: e.bossMax,
         });
       } else if (e.t === "pause") setScreen("pause");
       else if (e.t === "rank") {
@@ -362,6 +364,19 @@ function HudBar() {
           </div>
         </div>
       </div>
+      {hud.bossMax > 0 && (
+        <div className="absolute left-1/2 top-[max(64px,calc(env(safe-area-inset-top)+54px))] w-[min(60vw,22rem)] -translate-x-1/2 sm:top-3">
+          <div className="h-3 overflow-hidden rounded-full border border-cream/20 bg-ink/80">
+            <div
+              className="h-full bg-candy transition-[width]"
+              style={{ width: `${(100 * hud.bossHp) / hud.bossMax}%` }}
+            />
+          </div>
+          <p className="mx-auto mt-1 w-fit rounded-full bg-ink/75 px-2 text-center text-[10px] font-extrabold uppercase tracking-widest text-cream">
+            Boss {hud.bossHp}/{hud.bossMax}
+          </p>
+        </div>
+      )}
       <div className="mr-12 flex items-center gap-2">
         {hud.pizza && (
           <div className="rounded-[18px] border border-candy/40 bg-candy/20 px-3 py-2 font-display text-xl tabular-nums text-candy">

@@ -1364,6 +1364,8 @@ export class PlayScene extends Phaser.Scene {
 
   private pushHud() {
     const rank = rankFromScore(this.score, this.damaged, this.secrets);
+    const boss = this.level.isBoss ? this.mobs.find((m) => m.kind === "boss") : undefined;
+    const bossMax = boss ? (BOSSES[this.level.bossId ?? ""]?.lives ?? 0) : 0;
     emitGame({
       t: "hud",
       score: this.score,
@@ -1377,6 +1379,8 @@ export class PlayScene extends Phaser.Scene {
       rank,
       label: this.prompt || this.label,
       meter: this.meter,
+      bossHp: boss ? Math.max(0, boss.hp) : 0,
+      bossMax,
     });
   }
 
