@@ -32,8 +32,9 @@ const P2 = {
 const p2Prev = { jump: false, attack: false, up: false };
 
 export function setCoopInput(on: boolean) {
+  if (coop === on) return;
   coop = on;
-  p2Prev.jump = p2Prev.attack = p2Prev.up = false;
+  // Pads are re-mapped (all pads -> P1 vs pad 1 -> P1, pad 2 -> P2): forget old edges.
   ssi().padPrev = [];
 }
 
@@ -53,11 +54,18 @@ export function bootInput() {
   st.inputAbort?.abort();
   const ac = new AbortController();
   st.inputAbort = ac;
-  st.prevJump = false;
-  st.prevAttack = false;
-  st.prevUp = false;
-  st.prevPause = false;
-  st.prevSpecial = false;
+  // A key still held from the last room (e.g. Up at a house doorway) is not a new press here,
+  // otherwise holding Up walks you straight back through the door you arrived at.
+  const h = allHeld();
+  const any = (set: Set<string>) => [...set].some((c) => h.has(c));
+  st.prevJump = any(JUMP);
+  st.prevAttack = any(ATTACK) || h.has("KeyX");
+  st.prevUp = any(UP);
+  st.prevPause = any(PAUSE);
+  st.prevSpecial = any(SPECIAL);
+  p2Prev.jump = [...P2.jump].some((c) => h.has(c));
+  p2Prev.attack = [...P2.attack].some((c) => h.has(c));
+  p2Prev.up = h.has(P2.up);
 
   const onDown = (e: KeyboardEvent) => {
     if (isTyping(e.target)) return;
