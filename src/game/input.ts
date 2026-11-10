@@ -136,31 +136,38 @@ export function readActions(): Actions {
 }
 
 export function pollGamepad(actions: Actions) {
+  const st = ssi();
+  if (!st.padPrev) st.padPrev = { jump: false, attack: false, up: false, pause: false, special: false };
   const pads = navigator.getGamepads?.() ?? [];
+  const now = { jump: false, attack: false, up: false, pause: false, special: false };
   for (const pad of pads) {
     if (!pad) continue;
     const ax = pad.axes[0] ?? 0;
-    const mag = Math.hypot(ax, pad.axes[1] ?? 0);
+    const ay = pad.axes[1] ?? 0;
+    const mag = Math.hypot(ax, ay);
     if (mag > 0.18) {
-      const nx = ax;
-      if (Math.abs(nx) > 0.18) actions.moveX = Math.sign(nx);
+      if (Math.abs(ax) > 0.18) actions.moveX = Math.sign(ax);
     }
     if (pad.buttons[14]?.pressed) actions.moveX = -1;
     if (pad.buttons[15]?.pressed) actions.moveX = 1;
-    if (pad.buttons[0]?.pressed) {
-      if (!actions.jump) actions.jumpPressed = true;
-      actions.jump = true;
-    }
-    if (pad.buttons[2]?.pressed) {
-      if (!actions.attack) actions.attackPressed = true;
-      actions.attack = true;
-    }
-    if (pad.buttons[9]?.pressed) actions.pausePressed = true;
-    if (pad.buttons[12]?.pressed) {
-      if (!actions.up) actions.upPressed = true;
-      actions.up = true;
-    }
-    if (pad.buttons[13]?.pressed) actions.down = true;
+    if (pad.buttons[0]?.pressed) now.jump = true;
+    if (pad.buttons[2]?.pressed) now.attack = true;
+    // Y (3) or either bumper (4/5) is Special.
+    if (pad.buttons[3]?.pressed || pad.buttons[4]?.pressed || pad.buttons[5]?.pressed) now.special = true;
+    if (pad.buttons[9]?.pressed) now.pause = true;
+    if (pad.buttons[12]?.pressed || ay < -0.6) now.up = true;
+    if (pad.buttons[13]?.pressed || ay > 0.6) actions.down = true;
     if (pad.buttons[1]?.pressed) actions.run = true;
   }
+  // Holding a pad button only counts as a press on the frame it goes down.
+  const prev = st.padPrev;
+  if (now.jump && !prev.jump && !actions.jump) actions.jumpPressed = true;
+  if (now.attack && !prev.attack && !actions.attack) actions.attackPressed = true;
+  if (now.up && !prev.up && !actions.up) actions.upPressed = true;
+  if (now.pause && !prev.pause) actions.pausePressed = true;
+  if (now.special && !prev.special) actions.specialPressed = true;
+  actions.jump ||= now.jump;
+  actions.attack ||= now.attack;
+  actions.up ||= now.up;
+  st.padPrev = now;
 }

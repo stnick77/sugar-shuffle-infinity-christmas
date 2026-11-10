@@ -15,6 +15,8 @@ export type SsiSlot = {
   prevUp: boolean;
   prevPause: boolean;
   prevSpecial: boolean;
+  /** Gamepad buttons held last frame, for just-pressed edges. */
+  padPrev: { jump: boolean; attack: boolean; up: boolean; pause: boolean; special: boolean };
 };
 
 function emptySlot(): SsiSlot {
@@ -29,6 +31,7 @@ function emptySlot(): SsiSlot {
     prevUp: false,
     prevPause: false,
     prevSpecial: false,
+    padPrev: { jump: false, attack: false, up: false, pause: false, special: false },
   };
 }
 
