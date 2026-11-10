@@ -1103,7 +1103,11 @@ export class PlayScene extends Phaser.Scene {
     if (this.level.isHub || this.level.isBoss) return;
     const target = this.goal === "exit" ? this.exitPt : this.spawn;
     // A tall box, so running or jumping through the door / start flag still counts.
-    if (Math.abs(this.player.x - target.x) > 56 || Math.abs(this.player.y - target.y) > 96) return;
+    // The start sits at the left wall and the exit door at the right wall, so overshooting
+    // either one (e.g. jumping a pit next to it) counts too.
+    const dx = this.player.x - target.x;
+    const past = (this.goal === "start" ? dx < 0 : dx > 0) && Math.abs(this.player.y - target.y) <= 160;
+    if (!past && (Math.abs(dx) > 56 || Math.abs(this.player.y - target.y) > 96)) return;
     if (this.goal === "exit") {
       if (this.level.isFinal) {
         this.escapePumpkin();
