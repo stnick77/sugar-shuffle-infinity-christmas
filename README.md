@@ -241,6 +241,14 @@ Progress, candy bux, combos, lore, promo codes, and endings live in **browser `l
 
 ---
 
+## DLC: 'Tis the Seasones (Christmas)
+
+Press the **DLC** button on the main menu to turn on the Christmas expansion
+(press again to turn it off). Cuboe and Cubro's Home, Christmas cosmetics,
+collectables, music, 2-player co-op and a December gift. See **[DLC.md](DLC.md)**.
+
+---
+
 ## Project map
 
 | Path | What lives there |
