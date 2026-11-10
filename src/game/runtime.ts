@@ -1,5 +1,7 @@
 export const HMR_EVENT = "ssi-hmr";
 
+export type PadEdges = { jump: boolean; attack: boolean; up: boolean; pause: boolean; special: boolean };
+
 export type SsiSlot = {
   game: {
     destroy: (removeCanvas: boolean) => void;
@@ -17,6 +19,8 @@ export type SsiSlot = {
   prevSpecial: boolean;
   /** One-shot first room for the next boot (DLC: Cuboe and Cubro's Home). */
   startLevel?: string;
+  /** Gamepad buttons held last frame, for just-pressed edges. One entry per player (co-op P2 = index 1). */
+  padPrev: PadEdges[];
 };
 
 function emptySlot(): SsiSlot {
@@ -31,6 +35,7 @@ function emptySlot(): SsiSlot {
     prevUp: false,
     prevPause: false,
     prevSpecial: false,
+    padPrev: [],
   };
 }
 

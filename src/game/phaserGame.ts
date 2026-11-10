@@ -2,6 +2,7 @@ import * as Phaser from "phaser";
 import { GAME_H, GAME_W } from "./config";
 import { PlayScene } from "./scenes/PlayScene";
 import { notifyGameHmr, ssi } from "./runtime";
+import { stopInput } from "./input";
 
 let SceneClass: typeof PlayScene = PlayScene;
 
@@ -47,6 +48,7 @@ export function mountGame(parent: HTMLElement) {
 export function destroyGame() {
   if (typeof window === "undefined") return;
   const st = ssi();
+  stopInput();
   const g = st.game;
   st.game = null;
   if (!g) return;

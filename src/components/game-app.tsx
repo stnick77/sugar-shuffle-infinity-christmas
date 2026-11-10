@@ -14,6 +14,7 @@ import {
 import { onGame } from "@/game/bus";
 import { unlockAudio, startMusic, stopMusic, sfx, setSfxVolume, setMusicVolume } from "@/game/audio";
 import { COMBOS, ENDINGS, HEROES, LORE, MINIGAMES, PROMO_CODES, type HeroId, type Rank } from "@/game/data/world";
+import { LEVELS } from "@/game/data/levels";
 import { resetSave } from "@/game/save";
 import { HMR_EVENT, ssi } from "@/game/runtime";
 import { useGame, type Screen } from "@/store/game-store";
@@ -24,7 +25,7 @@ import { installXmasMusic, setMusicArea } from "@/game/dlc/xmasMusic";
 import { HOME_START } from "@/game/dlc/logic";
 
 function unlock() {
-  unlockAudio();
+  unlockAudio(useGame.getState().save.settings);
   startMusic();
   sfx.ui();
 }
@@ -51,6 +52,15 @@ export function GameApp() {
   useEffect(() => {
     if (screen === "title" || screen === "select") setMusicArea("menu");
   }, [screen]);
+  const mountGen = useRef(0);
+
+  /** Tear the game down later, unless a newer game was mounted first (avoids the stuck loading screen). */
+  const destroyLater = () => {
+    const gen = mountGen.current;
+    void import("@/game/phaserGame").then((m) => {
+      if (mountGen.current === gen) m.destroyGame();
+    });
+  };
 
   const backToPlay = () => {
     void import("@/game/phaserGame").then((m) => m.getPlay()?.unfreeze());
@@ -86,7 +96,7 @@ export function GameApp() {
     stopMusic();
     setBooted(false);
     setReady(false);
-    void import("@/game/phaserGame").then((m) => m.destroyGame());
+    destroyLater();
     setScreen("title");
   };
   const goTitleRef = useRef(goTitle);
@@ -107,6 +117,8 @@ export function GameApp() {
           rank: e.rank,
           label: e.label,
           meter: e.meter,
+          bossHp: e.bossHp,
+          bossMax: e.bossMax,
         });
       } else if (e.t === "pause") setScreen("pause");
       else if (e.t === "rank") {
@@ -136,6 +148,7 @@ export function GameApp() {
     if (!booted || !host.current) return;
     let alive = true;
     let destroy: (() => void) | undefined;
+    mountGen.current += 1;
     void import("@/game/phaserGame").then((m) => {
       if (!alive || !host.current) return;
       m.destroyGame();
@@ -205,6 +218,18 @@ export function GameApp() {
     setScreen("playing");
   };
 
+  useEffect(() => {
+    if (screen !== "pause") return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || (e.code !== "Escape" && e.code !== "KeyP")) return;
+      e.preventDefault();
+      sfx.ui();
+      resume();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
   const toHub = () => {
     void import("@/game/phaserGame").then((m) => {
       const play = m.getPlay();
@@ -260,7 +285,7 @@ export function GameApp() {
             unlock();
             setBooted(false);
             setReady(false);
-            void import("@/game/phaserGame").then((m) => m.destroyGame());
+            destroyLater();
             setScreen("select");
           }}
           go={(s) => openMenu(s, "title")}
@@ -298,7 +323,7 @@ export function GameApp() {
         </Modal>
       )}
       {screen === "rank" && lastRank && (
-        <Modal title={lastRank.levelId}>
+        <Modal title={LEVELS[lastRank.levelId]?.name ?? lastRank.levelId}>
           <p className="font-display text-7xl text-candy">{lastRank.rank}</p>
           <p className="text-cream-dim">Score {lastRank.score.toLocaleString()}</p>
           <Btn onClick={toHub}>Back to hub</Btn>
@@ -311,7 +336,7 @@ export function GameApp() {
           <Btn onClick={goTitle} tone="ghost">Title</Btn>
         </Modal>
       )}
-      {screen === "ending" && <Ending go={setScreen} />}
+      {screen === "ending" && <Ending onTitle={goTitle} />}
       {screen === "how" && <How onClose={closeMenu} />}
       {screen === "lore" && <Lore onClose={closeMenu} />}
       {screen === "gallery" && <Gallery go={setScreen} onClose={closeMenu} />}
@@ -330,7 +355,7 @@ export function GameApp() {
               return;
             }
             if (!save.promo.includes(hit.reward)) persist({ promo: [...save.promo, hit.reward] });
-            setCodeMsg(`Unlocked — ${hit.label}`);
+            setCodeMsg(hit.soon ? `Saved — ${hit.label} (coming in a future update)` : `Unlocked — ${hit.label}`);
             sfx.win();
           }}
         />
@@ -400,7 +425,20 @@ function HudBar() {
           </div>
         </div>
       </div>
-      <div className="flex items-center gap-2">
+      {hud.bossMax > 0 && (
+        <div className="absolute left-1/2 top-[max(64px,calc(env(safe-area-inset-top)+54px))] w-[min(60vw,22rem)] -translate-x-1/2 sm:top-3">
+          <div className="h-3 overflow-hidden rounded-full border border-cream/20 bg-ink/80">
+            <div
+              className="h-full bg-candy transition-[width]"
+              style={{ width: `${(100 * hud.bossHp) / hud.bossMax}%` }}
+            />
+          </div>
+          <p className="mx-auto mt-1 w-fit rounded-full bg-ink/75 px-2 text-center text-[10px] font-extrabold uppercase tracking-widest text-cream">
+            Boss {hud.bossHp}/{hud.bossMax}
+          </p>
+        </div>
+      )}
+      <div className="mr-12 flex items-center gap-2">
         {hud.pizza && (
           <div className="rounded-[18px] border border-candy/40 bg-candy/20 px-3 py-2 font-display text-xl tabular-nums text-candy">
             {formatTime(hud.timer)}
@@ -619,7 +657,10 @@ function Codes({
       {msg && <p className="mt-2 text-sm text-mint">{msg}</p>}
       <ul className="mt-4 space-y-1 text-sm text-cream-dim">
         {PROMO_CODES.map((p) => (
-          <li key={p.code}>{save.promo.includes(p.reward) ? p.label : "••••"}</li>
+          <li key={p.code}>
+            {save.promo.includes(p.reward) ? p.label : "••••"}
+            {p.soon ? " · coming soon" : ""}
+          </li>
         ))}
       </ul>
       <Btn tone="ghost" onClick={onClose}>
@@ -646,13 +687,13 @@ function Endings({ onClose }: { onClose: () => void }) {
   );
 }
 
-function Ending({ go }: { go: (s: Screen) => void }) {
+function Ending({ onTitle }: { onTitle: () => void }) {
   const ending = useGame((s) => s.ending);
   const meta = ENDINGS.find((e) => e.id === ending);
   return (
     <Modal title={meta?.name ?? "Ending"}>
       <p className="text-cream-dim">{meta?.how}</p>
-      <Btn onClick={() => go("title")}>Title</Btn>
+      <Btn onClick={onTitle}>Title</Btn>
     </Modal>
   );
 }
@@ -834,10 +875,10 @@ function Fit({ onDone }: { onDone: () => void }) {
   const [ok, setOk] = useState(false);
   const [held, setHeld] = useState(0);
   useEffect(() => {
-    if (!ok) return;
+    if (!ok || held >= 8) return;
     const id = window.setInterval(() => setHeld((h) => h + 1), 200);
     return () => window.clearInterval(id);
-  }, [ok]);
+  }, [ok, held]);
   useEffect(() => {
     if (held < 8) return;
     const save = useGame.getState().save;
@@ -851,6 +892,8 @@ function Fit({ onDone }: { onDone: () => void }) {
         className="mx-auto mt-4 flex h-32 w-32 items-center justify-center rounded-full border border-cream/20 bg-surface font-display text-2xl"
         onPointerDown={() => setOk(true)}
         onPointerUp={() => setOk(false)}
+        onPointerLeave={() => setOk(false)}
+        onPointerCancel={() => setOk(false)}
       >
         {ok ? "FIT" : "POSE"}
       </button>

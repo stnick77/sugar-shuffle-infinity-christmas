@@ -4,7 +4,8 @@ let sfxBus: GainNode | null = null;
 let musicBus: GainNode | null = null;
 let musicTimer: number | null = null;
 
-export function unlockAudio() {
+/** Create/resume the audio context. Pass the saved volumes so a muted save stays muted. */
+export function unlockAudio(prefs?: { sfx: number; music: number }) {
   if (!ctx) {
     const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     ctx = new AC({ latencyHint: "interactive" });
@@ -14,8 +15,8 @@ export function unlockAudio() {
     sfxBus.connect(master);
     musicBus.connect(master);
     master.connect(ctx.destination);
-    sfxBus.gain.value = 0.8;
-    musicBus.gain.value = 0.35;
+    sfxBus.gain.value = prefs ? prefs.sfx * prefs.sfx : 0.8;
+    musicBus.gain.value = prefs ? prefs.music * prefs.music : 0.35;
     master.gain.value = 0.9;
   }
   if (ctx.state === "suspended") void ctx.resume();

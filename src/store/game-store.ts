@@ -31,6 +31,8 @@ export interface Hud {
   label: string;
   prompt: string;
   meter: number;
+  bossHp: number;
+  bossMax: number;
 }
 
 interface Store {
@@ -60,6 +62,8 @@ const emptyHud: Hud = {
   label: "",
   prompt: "",
   meter: 0,
+  bossHp: 0,
+  bossMax: 0,
 };
 
 export const useGame = create<Store>((set, get) => ({

@@ -178,17 +178,17 @@ export const BOSSES: Record<
 export const COMBOS = {
   cuboe: [
     { id: "aeraste", name: "Aeraste", input: "Jump on an enemy", desc: "Stomp to bounce-kill." },
-    { id: "laser", name: "Spinning Laser", input: "Y + B with meter", desc: "Lasers spin in all directions." },
-    { id: "shield", name: "Forward Shield", input: "Hold X", desc: "Protective shield for 4 seconds." },
-    { id: "blackhole", name: "Black Hole", input: "Up + X with meter", desc: "Pulls enemies in." },
-    { id: "beams", name: "Two-Side Energy Beam", input: "Up + Y with meter", desc: "Fires beams both ways." },
+    { id: "laser", name: "Spinning Laser", input: "J in the air (35 meter)", desc: "Lasers spin in all directions." },
+    { id: "shield", name: "Forward Shield", input: "Q (20 meter)", desc: "Protective shield for 5 seconds." },
+    { id: "blackhole", name: "Black Hole", input: "Up + Q (40 meter)", desc: "Pulls enemies in." },
+    { id: "beams", name: "Two-Side Energy Beam", input: "Up + J (30 meter)", desc: "Fires beams both ways." },
   ],
   cubro: [
-    { id: "tornado", name: "Tornado Spin", input: "Attack while skating", desc: "Become a chocolate tornado." },
-    { id: "rocket", name: "Rocket Shot", input: "Y + A", desc: "Launch the skateboard like a missile." },
-    { id: "barrier", name: "Saiyan Barrier", input: "Special with meter", desc: "A barrier that lasts several seconds." },
-    { id: "infinity", name: "Infinity Boost", input: "Up + X + Y", desc: "A 8-second super speed gem." },
-    { id: "burst", name: "Super Saiyan Burst", input: "Up + B + Y", desc: "Energy burst that clears nearby foes." },
+    { id: "tornado", name: "Tornado Spin", input: "J while mach running", desc: "Become a chocolate tornado." },
+    { id: "rocket", name: "Rocket Shot", input: "Shift + J (25 meter)", desc: "Launch the skateboard like a missile." },
+    { id: "barrier", name: "Saiyan Barrier", input: "Q (25 meter)", desc: "A barrier that lasts several seconds." },
+    { id: "infinity", name: "Infinity Boost", input: "Up + Q (50 meter)", desc: "A 8-second super speed gem." },
+    { id: "burst", name: "Super Saiyan Burst", input: "Up + J (40 meter)", desc: "Energy burst that clears nearby foes." },
   ],
 };
 
@@ -206,22 +206,23 @@ export const LORE = [
 export const ENDINGS = [
   { id: "normal", name: "Normal", how: "Complete the game and escape the rotting pumpkin." },
   { id: "bad", name: "Bad", how: "Fail to escape the rotting pumpkin." },
-  { id: "good", name: "Good", how: "Punch the Warlock out of the rotting pumpkin and save every boss." },
-  { id: "playco", name: "Playco Path", how: "Spare the Candy Warlock for a finale battle." },
-  { id: "omega", name: "Omega Saiyan", how: "As Cubro, burst-kill 40 enemies and save every boss including the Warlock." },
+  { id: "good", name: "Good", how: "Punch the Warlock out of the rotting pumpkin: escape with 1:30 or more left." },
+  { id: "playco", name: "Playco Path", how: "Spare the Candy Warlock: escape the rotting pumpkin without defeating anyone." },
+  { id: "omega", name: "Omega Saiyan", how: "As Cubro, burst-kill 40 enemies, then escape the rotting pumpkin." },
   { id: "true", name: "True", how: "Collect every other ending. The Warlock becomes a friend." },
 ];
 
-export const PROMO_CODES = [
-  { code: "SYIOX", reward: "secret-sylux", label: "Unlocks secret boss Sylux" },
+/** Codes marked `soon` are saved now; their unlock is not built yet (future update). */
+export const PROMO_CODES: { code: string; reward: string; label: string; soon?: boolean }[] = [
+  { code: "SYIOX", reward: "secret-sylux", label: "Unlocks secret boss Sylux", soon: true },
   { code: "WERE CUBRO", reward: "were-cubro", label: "Were-Cubro palette" },
   { code: "WERE CUBOE", reward: "were-cuboe", label: "Were-Cuboe palette" },
-  { code: "METROID", reward: "metroid", label: "Secret Metroid arena" },
-  { code: "MARIONETTE", reward: "marionette", label: "Secret boss Marionette" },
-  { code: "MOTHERBRAIN", reward: "mother-brain", label: "Secret boss Mother Brain" },
-  { code: "MRGAW", reward: "mrgaw", label: "Mr. Game and Watch" },
-  { code: "OCTAVIO", reward: "octavio", label: "DJ Octavio Mecha 2.0" },
-  { code: "INKLING", reward: "inkling", label: "Inkling Squid" },
+  { code: "METROID", reward: "metroid", label: "Secret Metroid arena", soon: true },
+  { code: "MARIONETTE", reward: "marionette", label: "Secret boss Marionette", soon: true },
+  { code: "MOTHERBRAIN", reward: "mother-brain", label: "Secret boss Mother Brain", soon: true },
+  { code: "MRGAW", reward: "mrgaw", label: "Mr. Game and Watch", soon: true },
+  { code: "OCTAVIO", reward: "octavio", label: "DJ Octavio Mecha 2.0", soon: true },
+  { code: "INKLING", reward: "inkling", label: "Inkling Squid", soon: true },
 ];
 
 export const MINIGAMES = [
