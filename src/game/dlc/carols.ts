@@ -34,6 +34,10 @@ export interface Carol {
   /** One bass root per bar (octave 2/3 is chosen automatically). */
   roots: string[];
   bells?: boolean;
+  /** Drum kit: "techno" = four-on-the-floor + hats + clap, "march" = steady kick/snare. */
+  drums?: "techno" | "march";
+  /** Hayden's style note for the track. */
+  style?: string;
 }
 
 export interface LicensedSlot {
@@ -50,7 +54,9 @@ export const ORIGINAL_THEMES: Carol[] = [
     kind: "theme",
     area: "menu",
     credit: "Hayden",
-    bpm: 152,
+    style: "Adventurous and steady",
+    drums: "march",
+    bpm: 126,
     beatsPerBar: 4,
     pickup: 0,
     bells: true,
@@ -77,6 +83,7 @@ export const ORIGINAL_THEMES: Carol[] = [
     area: "home",
     credit: "Hayden",
     lead: "triangle",
+    style: "Calm and cozy",
     bpm: 84,
     beatsPerBar: 3,
     pickup: 0,
@@ -106,7 +113,9 @@ export const ORIGINAL_THEMES: Carol[] = [
     kind: "theme",
     area: "hub",
     credit: "Hayden",
-    bpm: 132,
+    style: "Adventurous and steady",
+    drums: "march",
+    bpm: 116,
     beatsPerBar: 4,
     pickup: 0,
     bells: true,
@@ -128,21 +137,22 @@ export const ORIGINAL_THEMES: Carol[] = [
     kind: "theme",
     area: "level",
     credit: "Hayden",
-    bpm: 176,
+    style: "Calm, retro, slow",
+    lead: "square",
+    bpm: 92,
     beatsPerBar: 4,
     pickup: 0,
-    bells: true,
     melody: [
-      "A4:0.5 A4:0.5 C5:0.5 A4:0.5 E5:1 D5:1",
-      "C5:0.5 B4:0.5 A4:0.5 G4:0.5 A4:2",
-      "F4:0.5 A4:0.5 C5:0.5 F5:0.5 E5:1 C5:1",
-      "D5:0.5 C5:0.5 B4:0.5 G4:0.5 E4:2",
-      "A4:0.5 A4:0.5 C5:0.5 A4:0.5 E5:1 G5:1",
-      "F5:0.5 E5:0.5 D5:0.5 E5:0.5 C5:2",
-      "D5:0.5 D5:0.5 B4:0.5 G4:0.5 C5:0.5 C5:0.5 A4:0.5 F4:0.5",
-      "G#4:1 B4:1 A4:2",
+      "E4:1 G4:1 C5:2",
+      "B4:1 A4:1 G4:2",
+      "A4:1 C5:1 F5:1.5 E5:0.5",
+      "D5:4",
+      "C5:1 E5:1 G5:1.5 F5:0.5",
+      "E5:1 D5:1 C5:2",
+      "A4:1 B4:0.5 C5:0.5 D5:1 G4:1",
+      "C5:4",
     ].join(" "),
-    roots: ["A", "A", "F", "G", "A", "D", "G", "E"],
+    roots: ["C", "E", "F", "G", "C", "A", "G", "C"],
   },
   {
     id: "boss-theme",
@@ -150,22 +160,23 @@ export const ORIGINAL_THEMES: Carol[] = [
     kind: "theme",
     area: "boss",
     credit: "Hayden",
+    style: "Fast, uplifting, techno",
     lead: "sawtooth",
-    bpm: 184,
+    drums: "techno",
+    bpm: 148,
     beatsPerBar: 4,
     pickup: 0,
-    bells: true,
     melody: [
-      "E4:0.5 E4:0.5 G4:0.5 E4:0.5 Bb4:0.5 A4:0.5 G4:0.5 E4:0.5",
-      "E4:0.5 E4:0.5 G4:0.5 E4:0.5 B4:1 A4:1",
-      "C5:0.5 C5:0.5 B4:0.5 A4:0.5 G4:0.5 A4:0.5 B4:1",
-      "F#4:0.5 G4:0.5 A4:0.5 F#4:0.5 D#4:2",
-      "E5:1 D5:0.5 B4:0.5 C5:1 A4:1",
-      "B4:1 G4:0.5 E4:0.5 F#4:2",
-      "G4:0.5 A4:0.5 B4:0.5 C5:0.5 D5:0.5 E5:0.5 F#5:0.5 G5:0.5",
-      "E5:2 B4:2",
+      "D5:0.5 F#5:0.5 A5:0.5 F#5:0.5 D5:0.5 F#5:0.5 A5:0.5 B5:0.5",
+      "G5:0.5 B5:0.5 D6:0.5 B5:0.5 G5:0.5 B5:0.5 A5:1",
+      "E5:0.5 G5:0.5 B5:0.5 G5:0.5 E5:0.5 G5:0.5 B5:0.5 C#6:0.5",
+      "A5:1 F#5:1 E5:1 A4:1",
+      "D5:0.5 F#5:0.5 A5:0.5 F#5:0.5 D5:0.5 F#5:0.5 A5:0.5 B5:0.5",
+      "G5:0.5 B5:0.5 D6:0.5 E6:0.5 F#6:1 E6:1",
+      "D6:0.5 C#6:0.5 B5:0.5 A5:0.5 G5:0.5 F#5:0.5 E5:0.5 C#5:0.5",
+      "D5:2 A5:1 D6:1",
     ].join(" "),
-    roots: ["E", "E", "C", "B", "C", "E", "A", "B"],
+    roots: ["D", "G", "E", "A", "D", "G", "A", "D"],
   },
 ];
 
@@ -372,7 +383,9 @@ export function bassLine(c: Carol): NoteEvent[] {
   c.roots.forEach((r, i) => {
     const at = c.pickup + i * c.beatsPerBar;
     const root = noteHz(`${r}2`) < 70 ? noteHz(`${r}3`) : noteHz(`${r}2`);
-    if (c.beatsPerBar === 4) {
+    if (c.drums === "techno") {
+      for (let k = 0; k < c.beatsPerBar * 2; k++) out.push({ at: at + k * 0.5 + 0.25, beats: 0.25, hz: root });
+    } else if (c.beatsPerBar === 4) {
       out.push({ at, beats: 2, hz: root });
       out.push({ at: at + 2, beats: 2, hz: root * 1.5 });
     } else {

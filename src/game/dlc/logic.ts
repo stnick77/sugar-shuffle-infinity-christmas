@@ -14,6 +14,7 @@ export const DLC_ID = "tis-the-seasones";
 export const DLC_TITLE = "'Tis the Seasones";
 export const DLC_FULL_TITLE = "Sugar Shuffle Infinity + DLC: 'Tis the Seasones";
 export const HOME_NAME = "Cuboe and Cubro's Home";
+export const HOME_START = "home-living";
 
 export type CosmeticSlot = "head" | "aura" | "board" | "body" | "neck";
 

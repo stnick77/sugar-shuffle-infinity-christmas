@@ -76,9 +76,22 @@ export const sfx = {
   tatsu: () => beep(140, 0.26, "triangle", 0.11, 90),
 };
 
+/**
+ * Optional music hook (used by the 'Tis the Seasones DLC). When it returns
+ * true it has started its own music and the base loop is skipped. Unset or
+ * returning false = base game music, exactly as before.
+ */
+type MusicHook = { start: (ctx: AudioContext, bus: GainNode) => boolean; stop: () => void };
+let musicHook: MusicHook | null = null;
+
+export function setMusicHook(hook: MusicHook | null) {
+  musicHook = hook;
+}
+
 export function startMusic() {
   if (!ctx || !musicBus) return;
   stopMusic();
+  if (musicHook?.start(ctx, musicBus)) return;
   const notes = [196, 247, 294, 330, 392, 330, 294, 247];
   let i = 0;
   const tick = () => {
@@ -100,6 +113,7 @@ export function startMusic() {
 }
 
 export function stopMusic() {
+  musicHook?.stop();
   if (musicTimer != null) {
     clearTimeout(musicTimer);
     musicTimer = null;
