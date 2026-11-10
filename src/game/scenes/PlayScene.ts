@@ -368,12 +368,24 @@ export class PlayScene extends Phaser.Scene {
       } else if (ch === "E") {
         this.interactives.push({ kind: "elevator", id: "next", x, y });
         this.drawDoor(x, y, "UP", "up");
-      } else if (ch === "T") this.interactives.push({ kind: "treasure", id: "t", x, y });
-      else if (ch === "R") {
+      } else if (ch === "T") {
+        const id = `treasure-${this.levelId}`;
+        if (!useGame.getState().save.claimed.includes(id)) {
+          this.interactives.push({ kind: "treasure", id, x, y });
+          const chest = this.add.sprite(x, y, "pickups", 3).setDisplaySize(44, 44).setTint(0xffd84a).setDepth(3);
+          chest.setData("treasure", id);
+          this.tweens.add({ targets: chest, angle: { from: -8, to: 8 }, yoyo: true, repeat: -1, duration: 500 });
+          this.marker(x, y - 40, "!");
+        }
+      } else if (ch === "R") {
         this.secrets++;
         this.interactives.push({ kind: "rift", id: "rift", x, y });
         this.marker(x, y - 36, "?");
-      } else if (ch === "M") this.interactives.push({ kind: "metroid", id: "metroid", x, y });
+      } else if (ch === "M") {
+        this.interactives.push({ kind: "metroid", id: "metroid", x, y });
+        this.add.rectangle(x, y + 14, 84, 14, 0x6a5a8a).setStrokeStyle(2, 0xc9b8ff).setDepth(2);
+        this.marker(x, y - 30, "M");
+      }
       else if (ch === "H") {
         this.interactives.push({ kind: "tv", id: "tv", x, y });
         const tv = this.add.rectangle(x, y - 18, 40, 32, 0x1a1210).setDepth(2);
@@ -1106,7 +1118,10 @@ export class PlayScene extends Phaser.Scene {
 
   private tickInteract(actions: ReturnType<typeof readActions>) {
     this.prompt = "";
-    if (!this.level.isHub && !this.level.isBoss) return;
+    if (!this.level.isHub && !this.level.isBoss) {
+      this.tickSecrets();
+      return;
+    }
     let nearest: (typeof this.interactives)[0] | null = null;
     let best = 70;
     for (const it of this.interactives) {
@@ -1150,6 +1165,29 @@ export class PlayScene extends Phaser.Scene {
     }
     if (nearest.kind === "boss") this.tryBoss();
     if (nearest.kind === "elevator") this.tryElevator();
+  }
+
+  /** Room secrets: drop into the spot under the rift "?", or touch a treasure. */
+  private tickSecrets() {
+    for (const it of [...this.interactives]) {
+      const dx = Math.abs(this.player.x - it.x);
+      if (it.kind === "rift" && dx < 44 && this.player.y > it.y + 100) {
+        this.interactives = this.interactives.filter((i) => i !== it);
+        this.unlockLore("rift");
+        this.pop(this.player.x, this.player.y - 20, "UNIVERSE RIFT");
+        sfx.pizza();
+      } else if (it.kind === "treasure" && dx < 40 && Math.abs(this.player.y - it.y) < 48) {
+        this.interactives = this.interactives.filter((i) => i !== it);
+        const save = useGame.getState().save;
+        if (!save.claimed.includes(it.id)) {
+          useGame.getState().persist({ candyBux: save.candyBux + 100, claimed: [...save.claimed, it.id] });
+        }
+        this.addCombo(1000);
+        this.pop(it.x, it.y - 20, "TREASURE +100 BUX");
+        sfx.win();
+        this.children.list.find((o) => o.getData?.("treasure") === it.id)?.destroy();
+      }
+    }
   }
 
   private claimGiver(it: (typeof this.interactives)[0]) {

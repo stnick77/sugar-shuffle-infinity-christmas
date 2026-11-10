@@ -293,6 +293,15 @@ const ARENA: string[] = [
   "########################################",
 ];
 
+/** Fake Candy Cuboe's arena: same floor, plus the Metroid platform from the storyboard. */
+const ARENA_F4: string[] = [
+  "........................................",
+  "........................................",
+  "........................................",
+  ".........S.....M........B...............",
+  "########################################",
+];
+
 const FINAL: string[] = [
   "........................................................................................",
   "................C................n..............p.......................................",
@@ -356,7 +365,7 @@ export const LEVELS: Record<string, LevelDef> = {
   "f4-2": pack("f4-2", "Cube Factory", FACTORY, { bg: "/game/bg/landfill.jpg", tint: 0xb8d4c0 }),
   "f4-3": pack("f4-3", "Sloppy Lab", LAB, { bg: "/game/bg/landfill.jpg", tint: 0xb8d4c0 }),
   "f4-4": pack("f4-4", "Butter Scotch Music Box", MUSIC, { bg: "/game/bg/landfill.jpg", tint: 0xb8d4c0 }),
-  "f4-boss": pack("f4-boss", "Fake Candy Cuboe", ARENA, { isBoss: true, bossId: "f4-boss", pizzaTime: 0 }),
+  "f4-boss": pack("f4-boss", "Fake Candy Cuboe", ARENA_F4, { isBoss: true, bossId: "f4-boss", pizzaTime: 0 }),
   "f5-1": pack("f5-1", "Ruin Pizza Plex", PLEX, { bg: "/game/bg/plex.jpg", ground: "marsh", tint: 0xff9a6a }),
   "f5-2": pack("f5-2", "Time Bomb Rush", BOMB, {
     bg: "/game/bg/plex.jpg",
