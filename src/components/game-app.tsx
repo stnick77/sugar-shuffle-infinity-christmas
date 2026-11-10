@@ -289,7 +289,7 @@ export function GameApp() {
           <Btn onClick={goTitle} tone="ghost">Title</Btn>
         </Modal>
       )}
-      {screen === "ending" && <Ending go={setScreen} />}
+      {screen === "ending" && <Ending onTitle={goTitle} />}
       {screen === "how" && <How onClose={closeMenu} />}
       {screen === "lore" && <Lore onClose={closeMenu} />}
       {screen === "gallery" && <Gallery go={setScreen} onClose={closeMenu} />}
@@ -596,13 +596,13 @@ function Endings({ onClose }: { onClose: () => void }) {
   );
 }
 
-function Ending({ go }: { go: (s: Screen) => void }) {
+function Ending({ onTitle }: { onTitle: () => void }) {
   const ending = useGame((s) => s.ending);
   const meta = ENDINGS.find((e) => e.id === ending);
   return (
     <Modal title={meta?.name ?? "Ending"}>
       <p className="text-cream-dim">{meta?.how}</p>
-      <Btn onClick={() => go("title")}>Title</Btn>
+      <Btn onClick={onTitle}>Title</Btn>
     </Modal>
   );
 }
