@@ -13,6 +13,9 @@ import { setXmas, xmas, xmasOn } from "../dlc/state";
 import { CosmeticRig, XMAS_PK, preloadXmas } from "../dlc/cosmetics";
 import { HOUSE_LEVELS, drawHouseRoom, houseSpawn, isHouseLevel } from "../dlc/house";
 import { setMusicArea } from "../dlc/xmasMusic";
+import { BossRig } from "../bosses/rig";
+import { tickBrain, type BossHost, type BossMob } from "../bosses/brain";
+import { phaseFor } from "../bosses/moves";
 
 type Partner = {
   spr: Phaser.Physics.Arcade.Sprite;
@@ -40,14 +43,26 @@ const OMEGA_BURST_KILLS = 40;
 /** Boss sprite centre sits this far above its feet (96px display, body bottom at 120/128 of the frame). */
 const BOSS_FEET = 42;
 
+/** Choco Man's wind-up glow, per move. */
+const CHOCO_TELL: Record<string, number> = {
+  hadoken: 0x6ff0ff,
+  shoryuken: 0xff8a3a,
+  tatsu: 0xb48cff,
+  jump: 0xffe066,
+  rush: 0xff5a5a,
+};
+
 const CLEAR_BUX: Record<string, number> = { P: 250, S: 200, A: 175, B: 150, C: 125, D: 100, F: 75 };
 
-type Mob = {
-  spr: Phaser.Physics.Arcade.Sprite;
-  kind: string;
-  dir: number;
-  hp: number;
-  next: number;
+type Mob = BossMob;
+
+/** Colour of each boss's phase-change burst. */
+const BOSS_COLOR: Record<string, number> = {
+  "f1-boss": 0xc87a3a,
+  "f2-boss": 0xff7ab8,
+  "f3-boss": 0xff5a5a,
+  "f4-boss": 0x6ff0ff,
+  "f5-boss": 0xb48cff,
 };
 
 export class PlayScene extends Phaser.Scene {
@@ -57,6 +72,9 @@ export class PlayScene extends Phaser.Scene {
   private solids!: Phaser.Physics.Arcade.StaticGroup;
   private oneWay!: Phaser.Physics.Arcade.StaticGroup;
   private mobs: Mob[] = [];
+  /** Boss attack shapes (vines, rays, beams…) that hurt a hero touching them while they exist. */
+  private hazards: Phaser.GameObjects.Shape[] = [];
+  private bossHost: BossHost | null = null;
   private pickups!: Phaser.Physics.Arcade.Group;
   private shots!: Phaser.Physics.Arcade.Group;
   private facing = 1;
@@ -123,6 +141,8 @@ export class PlayScene extends Phaser.Scene {
     if (id === "hub") id = hubIdFor(floor);
     this.levelId = id;
     this.mobs = [];
+    this.hazards = [];
+    this.bossHost = null;
     this.interactives = [];
     this.pizza = false;
     this.goal = "exit";
@@ -189,6 +209,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private bootWorld() {
+    this.holdWorld(false);
     bootInput();
     this.hero = useGame.getState().save.hero;
     const def = HEROES[this.hero];
@@ -712,7 +733,7 @@ export class PlayScene extends Phaser.Scene {
     this.mobs.push({ spr, kind, dir: Math.random() > 0.5 ? 1 : -1, hp: kind === "nincube" ? 2 : 1, next: 0 });
   }
 
-  private spawnBoss(x: number, y: number) {
+  private spawnBoss(x: number, _y: number) {
     const id = this.level.bossId ?? "f1-boss";
     const info = BOSSES[id]!;
     // Stand the boss ON the floor. Spawning at the tile centre left its 67px-tall body
@@ -727,11 +748,24 @@ export class PlayScene extends Phaser.Scene {
     spr.setData("floorTop", floorTop);
     spr.setCollideWorldBounds(true);
     this.physics.add.collider(spr, this.solids);
-    if (this.anims.exists(`${info.sprite}-idle`)) spr.play(`${info.sprite}-idle`);
+    const idle = this.anims.exists(`${info.sprite}-idle`) ? `${info.sprite}-idle` : info.sprite;
+    if (this.anims.exists(idle)) spr.play(idle);
     spr.setData("open", false);
-    this.mobs.push({ spr, kind: "boss", dir: -1, hp: info.lives, next: this.time.now + 800 });
+    spr.setData("phase", 1);
+    spr.setData("attacks", 0);
+    spr.setFlipX(true);
+    // Fake Cubro / Fake Cuboe get a sour-candy tint so they read as the copies.
+    const tint = id === "f3-boss" ? 0xe0b0ff : id === "f4-boss" ? 0xb0f0ff : undefined;
+    const rig = new BossRig(this, spr, { tint });
+    const m: Mob = { spr, kind: "boss", dir: -1, hp: info.lives, next: this.time.now + 2000, rig };
+    this.mobs.push(m);
     this.label = info.name;
-    this.pop(x, y - 80, "HIT WHEN FLASHING");
+    rig.entrance(() => {
+      this.trauma = Math.min(1, this.trauma + 0.55);
+      sfx.bossSlam();
+      this.pop(x, floorTop - 130, info.name.toUpperCase());
+      this.time.delayedCall(500, () => this.pop(x, floorTop - 100, "HIT WHEN FLASHING"));
+    });
   }
 
   private spawnPlayer() {
@@ -780,12 +814,14 @@ export class PlayScene extends Phaser.Scene {
     pollGamepad(actions);
     if (actions.pausePressed) {
       this.frozen = true;
+      this.holdWorld(true);
       emitGame({ t: "pause" });
       return;
     }
     this.controlPlayer(actions, dt);
     if (this.partner) this.controlPartner(dt);
     this.tickMobs();
+    this.tickHazards();
     this.tickGoal();
     this.tickInteract(actions);
     this.tickPizza(dt);
@@ -997,7 +1033,9 @@ export class PlayScene extends Phaser.Scene {
       this.pop(m.spr.x, m.spr.y - 50, "WAIT FOR THE FLASH");
       return;
     }
+    if (m.dying) return;
     m.hp -= dmg;
+    if (m.kind === "boss") m.rig?.flinch(this.player.x < m.spr.x ? 1 : -1);
     m.spr.setTintFill(0xffffff);
     m.spr.setData("flash", true);
     this.time.delayedCall(80, () => {
@@ -1013,10 +1051,40 @@ export class PlayScene extends Phaser.Scene {
     this.meter = Math.min(100, this.meter + 8);
     if (m.hp <= 0) {
       this.pop(m.spr.x, m.spr.y, m.kind === "boss" ? "KO" : "+100");
-      m.spr.destroy();
-      if (m.kind === "boss") this.winBoss();
-      else this.kills++;
+      if (m.kind === "boss") this.defeatBoss(m);
+      else {
+        m.spr.destroy();
+        this.kills++;
+      }
     }
+  }
+
+  /** Boss KO: stop the fight, clear its attacks, play the defeat burst, then the rank screen. */
+  private defeatBoss(m: Mob) {
+    m.dying = true;
+    m.spr.setData("move", "");
+    const body = m.spr.body as Phaser.Physics.Arcade.Body;
+    body.setVelocity(0, 0);
+    body.setAllowGravity(false);
+    body.setGravityY(0);
+    this.invulnT = Math.max(this.invulnT, 3);
+    this.hazards.forEach((h) => h.destroy());
+    this.hazards = [];
+    this.shots.getChildren().forEach((c) => {
+      if (!(c as Phaser.GameObjects.Sprite).getData("friendly")) c.destroy();
+    });
+    this.mobs.forEach((mm) => {
+      if (mm !== m && mm.spr.active) mm.spr.destroy();
+    });
+    this.trauma = Math.min(1, this.trauma + 0.8);
+    sfx.bossRoar();
+    const done = () => {
+      m.rig?.destroy();
+      m.spr.destroy();
+      this.winBoss();
+    };
+    if (m.rig) m.rig.defeat(() => this.time.delayedCall(0, done));
+    else done();
   }
 
   private tickMobs() {
@@ -1028,9 +1096,14 @@ export class PlayScene extends Phaser.Scene {
         continue;
       }
       const body = m.spr.body as Phaser.Physics.Arcade.Body;
-      m.spr.setFlipX(m.dir < 0);
+      if (!m.dying) m.spr.setFlipX(m.dir < 0);
       if (m.kind === "boss") {
-        this.tickBoss(m, now);
+        if (!m.dying) this.tickBoss(m, now);
+        m.rig?.sync(now, {
+          flash: !!m.spr.getData("flash"),
+          open: !!m.spr.getData("open"),
+          busy: !!m.spr.getData("move"),
+        });
         continue;
       }
       const spd = m.kind === "nincube" ? 90 : m.kind === "pump" ? 55 : 70;
@@ -1062,10 +1135,10 @@ export class PlayScene extends Phaser.Scene {
     }
   }
 
-  private openBoss(m: Mob) {
+  private openBoss(m: Mob, ms = 700) {
     m.spr.setTint(0xffe088);
     m.spr.setData("open", true);
-    this.time.delayedCall(560, () => {
+    this.time.delayedCall(ms, () => {
       if (!m.spr.active) return;
       m.spr.clearTint();
       m.spr.setData("open", false);
@@ -1085,44 +1158,90 @@ export class PlayScene extends Phaser.Scene {
   private tickBoss(m: Mob, now: number) {
     this.keepBossOnFloor(m);
     const id = this.level.bossId ?? "f1-boss";
+    this.bossPhase(m, id);
     if (id === "f1-boss") {
-      this.tickChocoMan(m, now);
+      if (!m.rig?.entering) this.tickChocoMan(m, now);
       return;
     }
-    const body = m.spr.body as Phaser.Physics.Arcade.Body;
-    const dx = this.player.x - m.spr.x;
-    m.dir = dx < 0 ? -1 : 1;
-    if (now < m.next) {
-      body.setVelocityX(0);
-      this.bossMelee(m, 52);
-      return;
+    tickBrain(this.host(), id, m, now);
+  }
+
+  /** Phase 2 at 2/3 health, phase 3 at 1/3: roar, flash and a ring burst. */
+  private bossPhase(m: Mob, id: string) {
+    const max = BOSSES[id]?.lives ?? m.hp;
+    const p = phaseFor(m.hp, max);
+    const was = Number(m.spr.getData("phase") ?? 1);
+    if (p <= was) return;
+    m.spr.setData("phase", p);
+    m.rig?.phaseUp(BOSS_COLOR[id] ?? 0xffffff);
+    this.trauma = Math.min(1, this.trauma + 0.5);
+    this.cameras.main.flash(120, 255, 240, 200);
+    sfx.bossRoar();
+    this.pop(m.spr.x, m.spr.y - 110, p === 3 ? "FINAL PHASE!" : "PHASE 2!");
+    // a short roar pause before the new moves
+    m.next = Math.max(m.next, this.time.now + 700);
+  }
+
+  /** What the boss brains (src/game/bosses) can do in this room. */
+  private host(): BossHost {
+    if (this.bossHost) return this.bossHost;
+    const floorTop = this.arenaFloorTop(this.player?.x ?? 0);
+    this.bossHost = {
+      scene: this,
+      floorTop,
+      worldW: worldSize(this.level).w,
+      target: () => ({ x: this.player.x, y: this.player.y }),
+      shot: (x, y, vx, vy, o = {}) => {
+        const b = this.shots.create(x, y, "pickups", o.frame ?? 0) as Phaser.Physics.Arcade.Sprite;
+        b.setDisplaySize(o.w ?? 22, o.h ?? 22);
+        if (o.tint !== undefined) b.setTint(o.tint);
+        b.setDepth(7);
+        b.setData("friendly", false);
+        const body = b.body as Phaser.Physics.Arcade.Body;
+        body.setAllowGravity(!!o.gravity);
+        if (o.gravity) body.setGravityY(o.gravity);
+        body.setVelocity(vx, vy);
+        this.time.delayedCall(o.life ?? 2600, () => b.destroy());
+        return b;
+      },
+      hazard: (obj) => {
+        this.hazards.push(obj);
+      },
+      melee: (m, reach) => this.bossMelee(m, reach),
+      open: (m, ms) => this.openBoss(m, ms),
+      pop: (x, y, text) => this.pop(x, y, text),
+      shake: (n) => {
+        this.trauma = Math.min(1, this.trauma + n);
+      },
+      summon: (x) => {
+        const alive = this.mobs.filter((mm) => mm.kind !== "boss" && mm.spr.active).length;
+        if (alive >= 2) return false;
+        this.spawnMob(x, floorTop - 26, "boxguy");
+        return true;
+      },
+      sound: (k) => {
+        const map = { telegraph: sfx.bossWarn, fire: sfx.bossFire, slam: sfx.bossSlam, whoosh: sfx.bossWhoosh, zap: sfx.bossZap, roar: sfx.bossRoar };
+        map[k]();
+      },
+    };
+    return this.bossHost;
+  }
+
+  /** Boss hazard shapes hurt a hero who touches them (shield/invulnerability still protect). */
+  private tickHazards() {
+    if (!this.hazards.length) return;
+    this.hazards = this.hazards.filter((h) => h.active);
+    const heroes = [this.player, this.partner?.spr].filter((s): s is Phaser.Physics.Arcade.Sprite => !!s && s.active);
+    for (const h of this.hazards) {
+      if (h.alpha < 0.3) continue; // fading out
+      const r = h.getBounds();
+      for (const hero of heroes) {
+        const b = hero.body as Phaser.Physics.Arcade.Body;
+        if (!Phaser.Geom.Intersects.RectangleToRectangle(r, new Phaser.Geom.Rectangle(b.x, b.y, b.width, b.height))) continue;
+        if (this.shieldT > 0 || this.invulnT > 0 || this.hurtT > 0) continue;
+        this.hurt(1);
+      }
     }
-    if (id === "f3-boss") {
-      body.setVelocityX(m.dir * 340);
-      m.next = now + 1100;
-      this.time.delayedCall(420, () => {
-        if (m.spr.active) {
-          (m.spr.body as Phaser.Physics.Arcade.Body).setVelocityX(0);
-          this.openBoss(m);
-        }
-      });
-    } else if (id === "f2-boss") {
-      this.shoot(m.spr.x, m.spr.y - 10, m.dir);
-      this.incoming++;
-      m.next = now + 1100;
-      this.openBoss(m);
-    } else if (id === "f4-boss") {
-      this.shoot(m.spr.x, m.spr.y, 1);
-      this.shoot(m.spr.x, m.spr.y, -1);
-      m.next = now + 1400;
-      this.openBoss(m);
-    } else {
-      this.shoot(m.spr.x, m.spr.y - 8, m.dir);
-      body.setVelocityX(m.dir * 160);
-      m.next = now + 800;
-      this.openBoss(m);
-    }
-    this.bossMelee(m, 52);
   }
 
   private bossMelee(m: Mob, reach: number) {
@@ -1132,6 +1251,11 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private endChocoMove(m: Mob, recover = 620) {
+    const was = String(m.spr.getData("move") ?? "");
+    if (was === "shoryuken" || was === "jump" || was === "tatsu") {
+      m.rig?.land();
+      this.trauma = Math.min(1, this.trauma + 0.2);
+    }
     m.spr.setData("move", "");
     m.spr.setRotation(0);
     const body = m.spr.body as Phaser.Physics.Arcade.Body;
@@ -1147,6 +1271,10 @@ export class PlayScene extends Phaser.Scene {
     const dist = Math.abs(dx);
     const move = String(m.spr.getData("move") ?? "");
     const until = Number(m.spr.getData("moveUntil") ?? 0);
+    if (move && now > until + 4000) {
+      this.endChocoMove(m, 400); // watchdog: never stall mid-move
+      return;
+    }
     if (move !== "tatsu") m.dir = dx < 0 ? -1 : 1;
 
     if (move === "shoryuken") {
@@ -1183,6 +1311,13 @@ export class PlayScene extends Phaser.Scene {
       if (now > until) this.endChocoMove(m, 680);
       return;
     }
+    if (move === "windup") {
+      // telegraph: he crouches and glows in the colour of the move that's coming
+      if (grounded) body.setVelocityX(body.velocity.x * 0.7);
+      this.bossMelee(m, 46);
+      if (now > until) this.chocoGo(m, String(m.spr.getData("pick") ?? "rush"));
+      return;
+    }
 
     if (now < m.next) {
       if (grounded) body.setVelocityX(body.velocity.x * 0.82);
@@ -1201,6 +1336,17 @@ export class PlayScene extends Phaser.Scene {
     }
     if (angry && Math.random() < 0.4) pick = dist < 140 ? "shoryuken" : "tatsu";
 
+    // short wind-up so every move is readable (shorter when he's angry)
+    const wind = angry ? 300 : m.hp <= 6 ? 360 : 420;
+    this.beginChocoMove(m, "windup", now + wind);
+    m.spr.setData("pick", pick);
+    m.spr.setData("attacks", Number(m.spr.getData("attacks") ?? 0) + 1);
+    m.rig?.telegraph(CHOCO_TELL[pick] ?? 0xffffff, wind);
+    sfx.bossWarn();
+  }
+
+  private chocoGo(m: Mob, pick: string) {
+    m.rig?.release(pick === "shoryuken" || pick === "jump" ? "leap" : pick === "hadoken" ? "cast" : "lunge");
     if (pick === "hadoken") this.chocoHadoken(m);
     else if (pick === "shoryuken") this.chocoShoryuken(m);
     else if (pick === "tatsu") this.chocoTatsu(m);
@@ -1696,10 +1842,26 @@ export class PlayScene extends Phaser.Scene {
   freeze() {
     this.frozen = true;
     setInjected([]);
+    this.holdWorld(true);
   }
 
   unfreeze() {
     this.frozen = false;
+    this.holdWorld(false);
+  }
+
+  /** Pause/resume physics, timers and tweens with the pause menu, so a boss's attack doesn't play out behind it. */
+  private holdWorld(on: boolean) {
+    if (!this.sys?.isActive() && on) return;
+    if (on) {
+      this.physics?.world?.pause();
+      if (this.time) this.time.paused = true;
+      this.tweens?.pauseAll();
+    } else {
+      this.physics?.world?.resume();
+      if (this.time) this.time.paused = false;
+      this.tweens?.resumeAll();
+    }
   }
 
   goHub() {
@@ -1721,7 +1883,7 @@ export class PlayScene extends Phaser.Scene {
           try {
             return this.testState();
           } catch {
-            return { level: "", x: 0, y: 0, score: 0, prompt: "", partner: null, cosmetics: 0, xmasPickups: 0, xmasList: [], things: [] };
+            return { level: "", hp: 0, lives: 0, x: 0, y: 0, score: 0, prompt: "", partner: null, cosmetics: 0, xmasPickups: 0, xmasList: [], things: [] };
           }
         },
         boss: () => {
@@ -1745,6 +1907,8 @@ export class PlayScene extends Phaser.Scene {
     const pk = this.testPickups();
     return {
           level: this.levelId,
+          hp: this.hp,
+          lives: this.lives,
           x: this.player?.x ?? 0,
           y: this.player?.y ?? 0,
           score: this.score,
@@ -1773,7 +1937,7 @@ export class PlayScene extends Phaser.Scene {
       attacks: Number(m.spr.getData("attacks") ?? 0),
       bodyTop: body.top,
       bodyBottom: body.bottom,
-      spriteBottom: m.spr.getBounds().bottom,
+      spriteBottom: (m.rig?.vis ?? m.spr).getBounds().bottom,
       floorTop: this.arenaFloorTop(m.spr.x),
       grounded: body.blocked.down || body.touching.down,
       depth: m.spr.depth,
@@ -1801,6 +1965,8 @@ declare global {
         zoom: (z: number) => void;
         state: () => {
           level: string;
+          hp: number;
+          lives: number;
           x: number;
           y: number;
           score: number;

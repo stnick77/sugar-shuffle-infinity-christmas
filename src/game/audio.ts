@@ -75,6 +75,19 @@ export const sfx = {
     beep(90, 0.2, "triangle", 0.1, 80);
   },
   tatsu: () => beep(140, 0.26, "triangle", 0.11, 90),
+  // boss moves
+  bossWarn: () => beep(520, 0.18, "triangle", 0.07, 260),
+  bossFire: () => beep(300, 0.12, "square", 0.08, -160),
+  bossSlam: () => {
+    beep(60, 0.3, "triangle", 0.16, -20);
+    beep(120, 0.12, "square", 0.06, -60);
+  },
+  bossWhoosh: () => beep(200, 0.16, "sawtooth", 0.05, 380),
+  bossZap: () => beep(900, 0.22, "sawtooth", 0.06, -600),
+  bossRoar: () => {
+    beep(90, 0.45, "sawtooth", 0.12, 60);
+    beep(140, 0.4, "square", 0.06, -50);
+  },
 };
 
 /**
