@@ -223,6 +223,22 @@ await page.evaluate(() => window.__controlsTest.dlc.goRoom("f1-boss"));
 await waitRoom("f1-boss");
 check("Boss Theme plays in boss fights", (await music()) === "boss-theme", String(await music()));
 
+/* bosses stand on the floor and attack (every floor) */
+for (const id of ["f1-boss", "f2-boss", "f3-boss", "f4-boss", "f5-boss"]) {
+  if (id !== "f1-boss") {
+    await page.evaluate((id) => window.__controlsTest.dlc.goRoom(id), id);
+    await waitRoom(id);
+  }
+  await page.evaluate(() => window.__controlsTest.dlc.teleport(120, 600));
+  await sleep(1800); // entrance drop + landing
+  const b0 = await page.evaluate(() => window.__controlsTest.dlc.boss());
+  check(`${id} stands on the floor`, b0 && Math.abs(b0.bodyBottom - b0.floorTop) <= 2 && b0.depth > 1, JSON.stringify(b0 && { bottom: b0.bodyBottom, floor: b0.floorTop, depth: b0.depth }));
+  if (id === "f3-boss") await shot("08b-boss-fake-cubro-on-floor");
+  await page.waitForFunction(() => (window.__controlsTest.dlc.boss()?.attacks ?? 0) >= 2, null, { timeout: 15000 }).catch(() => {});
+  const b1 = await page.evaluate(() => window.__controlsTest.dlc.boss());
+  check(`${id} attacks`, (b1?.attacks ?? 0) >= 2, String(b1?.attacks));
+}
+
 /* 7. Cubro with cosmetics */
 await toTitle();
 await page.getByRole("button", { name: /Play/ }).first().click();
