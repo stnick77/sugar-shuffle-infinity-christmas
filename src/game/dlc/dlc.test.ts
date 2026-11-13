@@ -1,4 +1,5 @@
 import { describe, it } from "node:test";
+import { BOSS_MOVES, movesFor, nextMove, phaseFor } from "../bosses/moves.ts";
 import assert from "node:assert/strict";
 import {
   COLLECTABLES,
@@ -127,5 +128,38 @@ describe("music", () => {
     assert.equal(LICENSED_SLOTS.length, 5);
     for (const s of LICENSED_SLOTS) assert.equal(s.kind, "licensed");
     assert.equal(new Set(ALL_SONGS.map((s) => s.id)).size, ALL_SONGS.length);
+  });
+});
+
+describe("bosses", () => {
+  it("phases at 2/3 and 1/3 health", () => {
+    assert.equal(phaseFor(6, 6), 1);
+    assert.equal(phaseFor(4, 6), 2);
+    assert.equal(phaseFor(2, 6), 3);
+    assert.equal(phaseFor(7, 9), 1);
+    assert.equal(phaseFor(6, 9), 2);
+    assert.equal(phaseFor(3, 9), 3);
+  });
+  it("the last three bosses have 3+ moves from the start and more in later phases", () => {
+    for (const id of ["f3-boss", "f4-boss", "f5-boss"]) {
+      assert.ok(movesFor(id, 1).length >= 3, id);
+      assert.ok(movesFor(id, 3).length > movesFor(id, 1).length, id);
+    }
+    assert.ok(BOSS_MOVES["f2-boss"]!.length >= 3);
+  });
+  it("cycles through every move without repeating one back to back", () => {
+    for (const id of Object.keys(BOSS_MOVES)) {
+      for (const phase of [1, 2, 3]) {
+        const seen = new Set<string>();
+        let last = "";
+        for (let i = 0; i < 12; i++) {
+          const mv = nextMove(id, phase, i, last);
+          assert.notEqual(mv, last, `${id} p${phase} repeats ${mv}`);
+          seen.add(mv);
+          last = mv;
+        }
+        assert.equal(seen.size, movesFor(id, phase).length, `${id} p${phase}`);
+      }
+    }
   });
 });
