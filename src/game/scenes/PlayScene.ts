@@ -1696,7 +1696,34 @@ export class PlayScene extends Phaser.Scene {
         goRoom: (id: string, from?: string) => this.scene.restart({ levelId: id, from }),
         teleport: (x: number, y: number) => this.player?.setPosition(x, y),
         zoom: (z: number) => this.cameras.main.setZoom(z),
-        state: () => ({
+        // Guarded: during scene.restart the pickups group is torn down (children undefined), so never throw.
+        state: () => {
+          try {
+            return this.testState();
+          } catch {
+            return { level: "", x: 0, y: 0, score: 0, prompt: "", partner: null, cosmetics: 0, xmasPickups: 0, xmasList: [], things: [] };
+          }
+        },
+        boss: () => {
+          try {
+            return this.testBoss();
+          } catch {
+            return null;
+          }
+        },
+      },
+    };
+  }
+
+  private testPickups(): Phaser.GameObjects.Sprite[] {
+    const g = this.pickups as Phaser.Physics.Arcade.Group | undefined;
+    if (!g || !g.children) return [];
+    return g.getChildren().map((c) => c as Phaser.GameObjects.Sprite);
+  }
+
+  private testState() {
+    const pk = this.testPickups();
+    return {
           level: this.levelId,
           x: this.player?.x ?? 0,
           y: this.player?.y ?? 0,
@@ -1704,15 +1731,41 @@ export class PlayScene extends Phaser.Scene {
           prompt: this.prompt,
           partner: this.partner ? { hero: this.partner.hero, x: this.partner.spr.x, y: this.partner.spr.y } : null,
           cosmetics: this.rigs.length,
-          xmasPickups: this.pickups?.getChildren().filter((c) => (c as Phaser.GameObjects.Sprite).getData("xmas")).length ?? 0,
-          xmasList: (this.pickups?.getChildren() ?? [])
-            .map((c) => c as Phaser.GameObjects.Sprite)
-            .filter((c) => c.getData("xmas"))
-            .map((c) => ({ kind: String(c.getData("xmas")), x: c.x, y: c.y })),
+          xmasPickups: pk.filter((c) => c.getData("xmas")).length,
+          xmasList: pk.filter((c) => c.getData("xmas")).map((c) => ({ kind: String(c.getData("xmas")), x: c.x, y: c.y })),
           things: this.interactives.map((i) => ({ kind: i.kind, id: i.id, x: i.x, y: i.y, label: i.label })),
-        }),
-      },
     };
+  }
+
+  /** Boss probe for tests: body vs the arena floor, hp, current move and phase. */
+  private testBoss() {
+    const m = this.mobs.find((b) => b.kind === "boss" && b.spr.active);
+    if (!m) return null;
+    const body = m.spr.body as Phaser.Physics.Arcade.Body;
+    return {
+      id: this.level.bossId ?? "",
+      x: m.spr.x,
+      y: m.spr.y,
+      hp: m.hp,
+      open: !!m.spr.getData("open"),
+      move: String(m.spr.getData("move") ?? ""),
+      phase: Number(m.spr.getData("phase") ?? 1),
+      attacks: Number(m.spr.getData("attacks") ?? 0),
+      bodyTop: body.top,
+      bodyBottom: body.bottom,
+      spriteBottom: m.spr.getBounds().bottom,
+      floorTop: this.arenaFloorTop(m.spr.x),
+      grounded: body.blocked.down || body.touching.down,
+      depth: m.spr.depth,
+    };
+  }
+
+  /** Top of the solid floor directly under x (bottom of the world if there's none). */
+  private arenaFloorTop(x: number) {
+    const tx = Math.floor(x / TILE);
+    const rows = this.level.rows;
+    for (let ty = 0; ty < rows.length; ty++) if (rows[ty]?.[tx] === "#") return ty * TILE;
+    return worldSize(this.level).h;
   }
 }
 
@@ -1738,6 +1791,22 @@ declare global {
           xmasList: { kind: string; x: number; y: number }[];
           things: { kind: string; id: string; x: number; y: number; label?: string }[];
         };
+        boss: () => {
+          id: string;
+          x: number;
+          y: number;
+          hp: number;
+          open: boolean;
+          move: string;
+          phase: number;
+          attacks: number;
+          bodyTop: number;
+          bodyBottom: number;
+          spriteBottom: number;
+          floorTop: number;
+          grounded: boolean;
+          depth: number;
+        } | null;
       };
     };
   }
