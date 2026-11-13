@@ -3,16 +3,66 @@ import { TILE } from "../config";
 import { LEVELS, eachCell, hubIdFor, worldSize, type LevelDef } from "../data/levels";
 import { BOSSES, FLOORS, HEROES, rankFromScore, type HeroId } from "../data/world";
 import { emitGame } from "../bus";
-import { bootInput, pollGamepad, readActions, setInjected } from "../input";
+import { bootInput, pollGamepad, readActions, readActionsP2, setCoopInput, setInjected } from "../input";
 import { sfx } from "../audio";
 import { useGame } from "@/store/game-store";
+import { ssi } from "../runtime";
+// 'Tis the Seasones DLC — everything below is gated on xmasOn() / house rooms.
+import { COLLECTABLES, activeCosmetics, collect, collectableForCandy, type CollectableKind } from "../dlc/logic";
+import { setXmas, xmas, xmasOn } from "../dlc/state";
+import { CosmeticRig, XMAS_PK, preloadXmas } from "../dlc/cosmetics";
+import { HOUSE_LEVELS, drawHouseRoom, houseSpawn, isHouseLevel } from "../dlc/house";
+import { setMusicArea } from "../dlc/xmasMusic";
+import { BossRig } from "../bosses/rig";
+import { tickBrain, type BossHost, type BossMob } from "../bosses/brain";
+import { phaseFor } from "../bosses/moves";
 
-type Mob = {
+type Partner = {
   spr: Phaser.Physics.Arcade.Sprite;
-  kind: string;
-  dir: number;
-  hp: number;
-  next: number;
+  hero: HeroId;
+  facing: number;
+  coyote: number;
+  jumpBuf: number;
+  attackT: number;
+  dropT: number;
+};
+
+/** Candy bux paid for clearing a room, by rank. */
+/** Floor gaps this wide or narrower are real pits; wider ones keep a walkable trench floor. */
+const PIT_MAX_TILES = 4;
+
+/** Texture key for a background image path (one texture per picture). */
+function bgKeyFor(path: string) {
+  return `bg:${path}`;
+}
+
+/** Ending thresholds (see escapePumpkin). */
+const GOOD_ESCAPE_SECONDS = 90;
+const OMEGA_BURST_KILLS = 40;
+
+/** Boss sprite centre sits this far above its feet (96px display, body bottom at 120/128 of the frame). */
+const BOSS_FEET = 42;
+
+/** Choco Man's wind-up glow, per move. */
+const CHOCO_TELL: Record<string, number> = {
+  hadoken: 0x6ff0ff,
+  shoryuken: 0xff8a3a,
+  tatsu: 0xb48cff,
+  jump: 0xffe066,
+  rush: 0xff5a5a,
+};
+
+const CLEAR_BUX: Record<string, number> = { P: 250, S: 200, A: 175, B: 150, C: 125, D: 100, F: 75 };
+
+type Mob = BossMob;
+
+/** Colour of each boss's phase-change burst. */
+const BOSS_COLOR: Record<string, number> = {
+  "f1-boss": 0xc87a3a,
+  "f2-boss": 0xff7ab8,
+  "f3-boss": 0xff5a5a,
+  "f4-boss": 0x6ff0ff,
+  "f5-boss": 0xb48cff,
 };
 
 export class PlayScene extends Phaser.Scene {
@@ -22,6 +72,9 @@ export class PlayScene extends Phaser.Scene {
   private solids!: Phaser.Physics.Arcade.StaticGroup;
   private oneWay!: Phaser.Physics.Arcade.StaticGroup;
   private mobs: Mob[] = [];
+  /** Boss attack shapes (vines, rays, beams…) that hurt a hero touching them while they exist. */
+  private hazards: Phaser.GameObjects.Shape[] = [];
+  private bossHost: BossHost | null = null;
   private pickups!: Phaser.Physics.Arcade.Group;
   private shots!: Phaser.Physics.Arcade.Group;
   private facing = 1;
@@ -37,7 +90,7 @@ export class PlayScene extends Phaser.Scene {
   private goal: "exit" | "start" = "exit";
   private spawn = { x: 80, y: 80 };
   private exitPt = { x: 200, y: 80 };
-  private interactives: { kind: string; id: string; x: number; y: number }[] = [];
+  private interactives: { kind: string; id: string; x: number; y: number; label?: string }[] = [];
   private frozen = false;
   private trauma = 0;
   private secrets = 0;
@@ -59,18 +112,37 @@ export class PlayScene extends Phaser.Scene {
   private holeT = 0;
   private invulnT = 0;
   private speedT = 0;
+  private kills = 0;
+  private startMark?: Phaser.GameObjects.Text;
   private dust!: Phaser.GameObjects.Particles.ParticleEmitter;
+  // DLC
+  private homeFrom: string | undefined;
+  private isHouse = false;
+  private partner: Partner | null = null;
+  private rigs: { rig: CosmeticRig; spr: () => Phaser.GameObjects.Sprite | null; facing: () => number }[] = [];
+  private camTarget: Phaser.GameObjects.Zone | null = null;
+  private darkness: Phaser.GameObjects.Rectangle | undefined;
 
   constructor() {
     super("play");
   }
 
-  init(data: { levelId?: string }) {
+  init(data: { levelId?: string; from?: string }) {
     const floor = useGame.getState().save.floor;
-    let id = data.levelId ?? hubIdFor(floor);
+    const start = ssi().startLevel;
+    ssi().startLevel = undefined;
+    let id = data.levelId ?? start ?? hubIdFor(floor);
+    this.homeFrom = data.from;
+    this.isHouse = isHouseLevel(id);
+    this.partner = null;
+    this.rigs = [];
+    this.camTarget = null;
+    this.darkness = undefined;
     if (id === "hub") id = hubIdFor(floor);
     this.levelId = id;
     this.mobs = [];
+    this.hazards = [];
+    this.bossHost = null;
     this.interactives = [];
     this.pizza = false;
     this.goal = "exit";
@@ -94,7 +166,9 @@ export class PlayScene extends Phaser.Scene {
     this.holeT = 0;
     this.invulnT = 0;
     this.speedT = 0;
+    this.kills = 0;
     this.prompt = "";
+    this.startMark = undefined;
   }
 
   preload() {
@@ -104,17 +178,9 @@ export class PlayScene extends Phaser.Scene {
     const sheet = (k: string, path: string) => {
       if (!this.textures.exists(k)) this.load.spritesheet(k, path, { frameWidth: 128, frameHeight: 128 });
     };
-    s("bg-valley", "/game/bg/candy-corn-valley.jpg");
-    s("bg-mash", "/game/bg/marsh-mellow-mash.jpg");
-    s("bg-forest", "/game/bg/lolly-pop-forest.jpg");
-    s("bg-mountain", "/game/bg/butter-scotch-mountain.jpg");
-    s("bg-hub", "/game/bg/hub-interior.jpg");
-    s("bg-desert", "/game/bg/sugar-rush-desert.jpg");
-    s("bg-farm", "/game/bg/cookie-war-farm.jpg");
-    s("bg-showdown", "/game/bg/sour-showdown.jpg");
-    s("bg-dune", "/game/bg/butter-scotch-dune.jpg");
-    s("bg-landfill", "/game/bg/landfill.jpg");
-    s("bg-plex", "/game/bg/plex.jpg");
+    // Only this room's background: every room has its own picture now, so load it on demand.
+    const room = LEVELS[this.levelId] ?? HOUSE_LEVELS[this.levelId] ?? LEVELS["hub-1"]!;
+    s(bgKeyFor(room.bg), room.bg);
     s("ground-candy", "/game/sprites/ground-candy.png");
     s("ground-marsh", "/game/sprites/ground-marsh.png");
     for (const h of ["cuboe", "cubro"] as const) {
@@ -127,7 +193,16 @@ export class PlayScene extends Phaser.Scene {
     sheet("outlaw", "/game/sprites/outlaw.png");
     sheet("warlock", "/game/sprites/warlock.png");
     sheet("pickups", "/game/sprites/pickups.png");
+    s("door-room", "/game/sprites/door-room.png");
+    s("door-boss", "/game/sprites/door-boss.png");
+    if (room.bossId === "f3-boss" || room.bossId === "f4-boss") {
+      // cursed Fake Candy Cuboe / Cubro (own sheets, same frame layout as the heroes)
+      for (const h of ["cuboe", "cubro"] as const) {
+        for (const a of ["idle", "run", "jump", "attack"] as const) sheet(`fake-${h}-${a}`, `/game/sprites/fake-${h}-${a}.png`);
+      }
+    }
     sheet("props", "/game/sprites/props.png");
+    if (xmasOn() || this.isHouse) preloadXmas(this);
   }
 
   create() {
@@ -142,6 +217,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private bootWorld() {
+    this.holdWorld(false);
     bootInput();
     this.hero = useGame.getState().save.hero;
     const def = HEROES[this.hero];
@@ -151,10 +227,14 @@ export class PlayScene extends Phaser.Scene {
     this.score = 0;
     this.meter = 20;
 
-    this.level = LEVELS[this.levelId] ?? LEVELS["hub-1"]!;
+    this.level = LEVELS[this.levelId] ?? HOUSE_LEVELS[this.levelId] ?? LEVELS["hub-1"]!;
+    setMusicArea(this.isHouse ? "home" : this.level.isBoss ? "boss" : this.level.isHub ? "hub" : "level");
     this.label = this.level.name;
     const { w, h } = worldSize(this.level);
-    this.physics.world.setBounds(0, 0, w, h);
+    const open = !this.level.isHub && !this.level.isBoss;
+    // Rooms have an extra row below the camera so short gaps can be fallen through.
+    this.physics.world.setBounds(0, 0, w, open ? h + TILE : h);
+    this.physics.world.setBoundsCollision(true, true, true, !open);
 
     if (!this.textures.exists("px")) {
       const g = this.make.graphics({ x: 0, y: 0 });
@@ -189,8 +269,15 @@ export class PlayScene extends Phaser.Scene {
     this.dust.setDepth(5);
 
     this.makeAnims();
+    if (this.isHouse) {
+      const { things, darkness } = drawHouseRoom(this, this.levelId);
+      this.interactives.push(...things);
+      this.darkness = darkness;
+    }
     this.buildMap();
+    if (this.isHouse) this.spawn = houseSpawn(this.levelId, this.homeFrom);
     this.spawnPlayer();
+    this.bootXmas();
 
     this.physics.add.collider(this.player, this.solids);
     this.physics.add.collider(this.player, this.oneWay, undefined, (_p, plat) => {
@@ -214,13 +301,15 @@ export class PlayScene extends Phaser.Scene {
     });
 
     const cam = this.cameras.main;
-    cam.startFollow(this.player, true, 0.14, 0.1);
+    cam.startFollow(this.camTarget ?? this.player, true, 0.14, 0.1);
     cam.setBounds(0, 0, w, Math.max(h, 720));
     cam.setDeadzone(140, 64);
     cam.fadeIn(250, 20, 12, 8);
 
     this.events.once("shutdown", () => {
       this.mobs.length = 0;
+      this.rigs.forEach((r) => r.rig.destroy());
+      this.rigs = [];
     });
 
     emitGame({ t: "ready" });
@@ -229,19 +318,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private bgKey() {
-    const p = this.level.bg;
-    if (p.includes("hub")) return "bg-hub";
-    if (p.includes("lolly-pop-forest")) return "bg-forest";
-    if (p.includes("butter-scotch-mountain")) return "bg-mountain";
-    if (p.includes("butter-scotch-dune")) return "bg-dune";
-    if (p.includes("cookie-war-farm")) return "bg-farm";
-    if (p.includes("sour-showdown")) return "bg-showdown";
-    if (p.includes("sugar-rush-desert")) return "bg-desert";
-    if (p.includes("marsh-mellow-mash") || p.includes("marsh-mash")) return "bg-mash";
-    if (p.includes("desert")) return "bg-desert";
-    if (p.includes("landfill")) return "bg-landfill";
-    if (p.includes("plex")) return "bg-plex";
-    return "bg-valley";
+    return bgKeyFor(this.level.bg);
   }
 
   private makeAnims() {
@@ -260,6 +337,13 @@ export class PlayScene extends Phaser.Scene {
       mk(`${h}-jump`, `${h}-jump`, 8, 0);
       mk(`${h}-attack`, `${h}-attack`, 14, 0);
     }
+    for (const h of ["cuboe", "cubro"] as const) {
+      if (!this.textures.exists(`fake-${h}-idle`)) continue;
+      mk(`fake-${h}-idle`, `fake-${h}-idle`, 7, -1);
+      mk(`fake-${h}-run`, `fake-${h}-run`, 12, -1);
+      mk(`fake-${h}-jump`, `fake-${h}-jump`, 8, 0);
+      mk(`fake-${h}-attack`, `fake-${h}-attack`, 14, 0);
+    }
     mk("boxguy-walk", "boxguy", 8, -1);
     mk("nincube-walk", "nincube", 12, -1);
     mk("pump-walk", "pump", 8, -1);
@@ -272,7 +356,15 @@ export class PlayScene extends Phaser.Scene {
     const x = tx * TILE + TILE / 2;
     const y = ty * TILE + TILE / 2;
     let img: Phaser.GameObjects.GameObject;
-    if (this.level.isHub) {
+    if (this.isHouse) {
+      // Cuboe and Cubro's Home: wood floor (#), invisible walls (|) and furniture tops (=)
+      const ch = this.level.rows[ty]?.[tx];
+      if (ch === "#") {
+        img = this.add.rectangle(x, y, TILE + 1, TILE + 1, 0x7a4426).setDepth(1);
+        this.add.rectangle(x, y - TILE / 2 + 3, TILE + 1, 6, 0xe0a060).setDepth(1);
+        this.add.rectangle(x - TILE / 2 + 1, y, 2, TILE, 0x4a2a18).setDepth(1);
+      } else img = this.add.rectangle(x, y, TILE, TILE, 0x000000, 0);
+    } else if (this.level.isHub) {
       const rec = this.add.rectangle(x, y, TILE + 1, TILE + 1, 0x3a2214).setDepth(1);
       this.add.rectangle(x, y - TILE / 2 + 3, TILE + 1, 6, 0xc47a3a).setDepth(1);
       img = rec;
@@ -300,43 +392,57 @@ export class PlayScene extends Phaser.Scene {
       .setDepth(8);
   }
 
-  private drawDoor(x: number, y: number, label: string, kind: "room" | "boss" | "up" | "pc", accent?: number) {
-    const g = this.add.graphics().setDepth(2);
-    const w = 46;
-    const h = 72;
-    const top = y - 20 - h / 2;
-    const col = kind === "boss" ? 0x1a0808 : kind === "up" ? 0x2a1810 : 0x3a1a10;
-    const line = accent ?? (kind === "boss" ? 0xff4d7a : 0xfff4d6);
-    g.fillStyle(col, 1);
-    g.fillRoundedRect(x - w / 2, top, w, h, 8);
-    g.lineStyle(3, line, 0.95);
-    g.strokeRoundedRect(x - w / 2, top, w, h, 8);
+  private drawDoor(x: number, y: number, label: string, kind: "room" | "boss" | "up" | "pc" | "exit", accent?: number) {
+    const bottom = y + TILE / 2 - 4; // stand on the floor tile below
     if (kind === "boss") {
-      g.fillStyle(0xfff4d6, 1);
-      g.fillTriangle(x - 20, top + 4, x - 12, top - 18, x - 4, top + 4);
-      g.fillTriangle(x + 20, top + 4, x + 12, top - 18, x + 4, top + 4);
+      // frosted boss door: pulsing glow behind it
+      const glow = this.add.ellipse(x, bottom - 46, 92, 112, 0xff4d8a, 0.28).setDepth(1.9);
+      this.tweens.add({ targets: glow, alpha: 0.08, scale: 1.08, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+      this.add.image(x, bottom, "door-boss").setOrigin(0.5, 1).setDisplaySize(68, 92).setDepth(2);
+      this.marker(x, bottom - 104, label);
+      return;
     }
+    // gingerbread door; its round window glows in the room's accent colour
+    const win = accent ?? (kind === "up" ? 0x7dff9a : kind === "pc" ? 0x8be9ff : kind === "exit" ? 0xffe066 : 0xfff4d6);
+    const lamp = this.add.circle(x, bottom - 41, 6, win, 1).setDepth(1.95);
+    this.tweens.add({ targets: lamp, alpha: 0.65, duration: 1100, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    this.add.image(x, bottom, "door-room").setOrigin(0.5, 1).setDisplaySize(46, 72).setDepth(2);
     if (kind === "up") {
-      g.fillStyle(0xfff4d6, 1);
-      g.fillTriangle(x, top + 14, x - 12, top + 34, x + 12, top + 34);
+      const g = this.add.graphics().setDepth(2.1);
+      g.fillStyle(0x7dff9a, 1).lineStyle(2, 0x22120e, 1);
+      g.fillTriangle(x, bottom - 30, x - 8, bottom - 18, x + 8, bottom - 18);
+      g.strokeTriangle(x, bottom - 30, x - 8, bottom - 18, x + 8, bottom - 18);
     }
-    this.marker(x, top - 14, label);
+    this.marker(x, bottom - 86, label);
   }
+
 
   private buildMap() {
     const floor = useGame.getState().save.floor;
+    let candyIdx = 0;
     eachCell(this.level, (ch, tx, ty) => {
       const x = tx * TILE + TILE / 2;
       const y = ty * TILE + TILE / 2;
-      if (ch === "#") this.tileSpr(tx, ty, false);
+      if (ch === "#" || (ch === "|" && this.isHouse)) this.tileSpr(tx, ty, false);
       else if (ch === "=") this.tileSpr(tx, ty, true);
       else if (ch === "S") this.spawn = { x: Math.max(x, 96), y: y - 8 };
       else if (ch === "X") this.exitPt = { x, y };
-      else if (ch === "c" || ch === "l") this.dropPickup(x, y, ch === "l" ? 1 : 0, 20);
+      else if (ch === "c" || ch === "l") {
+        const xk = this.xmasLevel() ? collectableForCandy(candyIdx) : null;
+        candyIdx++;
+        if (xk) this.dropXmas(x, y, xk);
+        else this.dropPickup(x, y, ch === "l" ? 1 : 0, 20);
+      }
       else if (ch === "g") {
-        this.dropPickup(x, y, 3, 50);
-        this.interactives.push({ kind: "giver", id: "g", x, y });
-        if (this.level.isHub) this.marker(x, y - 50, "400");
+        if (this.level.isHub) {
+          // Hub Candy Bux spot: a one-time +50 per hub, collected with Up.
+          const id = `giver-${this.levelId}`;
+          if (!useGame.getState().save.claimed.includes(id)) {
+            this.dropPickup(x, y, 3, 0);
+            this.interactives.push({ kind: "giver", id, x, y });
+            this.marker(x, y - 50, "+50");
+          }
+        } else this.dropPickup(x, y, 3, 50);
       } else if (ch === "b") this.spawnMob(x, y, "boxguy");
       else if (ch === "n") this.spawnMob(x, y, "nincube");
       else if (ch === "p") this.spawnMob(x, y, "pump");
@@ -353,12 +459,24 @@ export class PlayScene extends Phaser.Scene {
       } else if (ch === "E") {
         this.interactives.push({ kind: "elevator", id: "next", x, y });
         this.drawDoor(x, y, "UP", "up");
-      } else if (ch === "T") this.interactives.push({ kind: "treasure", id: "t", x, y });
-      else if (ch === "R") {
+      } else if (ch === "T") {
+        const id = `treasure-${this.levelId}`;
+        if (!useGame.getState().save.claimed.includes(id)) {
+          this.interactives.push({ kind: "treasure", id, x, y });
+          const chest = this.add.sprite(x, y, "pickups", 3).setDisplaySize(44, 44).setTint(0xffd84a).setDepth(3);
+          chest.setData("treasure", id);
+          this.tweens.add({ targets: chest, angle: { from: -8, to: 8 }, yoyo: true, repeat: -1, duration: 500 });
+          this.marker(x, y - 40, "!");
+        }
+      } else if (ch === "R") {
         this.secrets++;
         this.interactives.push({ kind: "rift", id: "rift", x, y });
         this.marker(x, y - 36, "?");
-      } else if (ch === "M") this.interactives.push({ kind: "metroid", id: "metroid", x, y });
+      } else if (ch === "M") {
+        this.interactives.push({ kind: "metroid", id: "metroid", x, y });
+        this.add.rectangle(x, y + 14, 84, 14, 0x6a5a8a).setStrokeStyle(2, 0xc9b8ff).setDepth(2);
+        this.marker(x, y - 30, "M");
+      }
       else if (ch === "H") {
         this.interactives.push({ kind: "tv", id: "tv", x, y });
         const tv = this.add.rectangle(x, y - 18, 40, 32, 0x1a1210).setDepth(2);
@@ -375,8 +493,240 @@ export class PlayScene extends Phaser.Scene {
       }
     });
     if (!this.level.isHub && !this.level.isBoss) {
-      this.add.sprite(this.exitPt.x, this.exitPt.y - 16, "props", 1).setDisplaySize(56, 72).setDepth(2);
+      this.drawDoor(this.exitPt.x, this.exitPt.y, "EXIT", "exit");
+      this.drawStartFlag();
+      this.buildPits();
     }
+  }
+
+  /** Start flag: where Sugar Time sends you back to. */
+  private drawStartFlag() {
+    const { x, y } = this.spawn;
+    const g = this.add.graphics().setDepth(2);
+    g.fillStyle(0xfff4d6, 1);
+    g.fillRect(x - 2, y - 56, 4, 84);
+    g.fillStyle(0xff4d7a, 1);
+    g.fillTriangle(x + 2, y - 56, x + 34, y - 46, x + 2, y - 36);
+    this.startMark = this.add
+      .text(x, y - 74, "START", {
+        fontFamily: "Lilita One, Impact, sans-serif",
+        fontSize: "18px",
+        color: "#fff4d6",
+        stroke: "#140c0a",
+        strokeThickness: 5,
+      })
+      .setOrigin(0.5)
+      .setDepth(8);
+  }
+
+  /** Short floor gaps become deadly pits (marked with goo); long ones get a trench floor under the camera. */
+  private buildPits() {
+    const rows = this.level.rows;
+    const ty = rows.length - 1;
+    const floor = rows[ty]!;
+    let tx = 0;
+    while (tx < floor.length) {
+      if (floor[tx] !== ".") {
+        tx++;
+        continue;
+      }
+      let end = tx;
+      while (end < floor.length && floor[end] === ".") end++;
+      const len = end - tx;
+      if (len > PIT_MAX_TILES) {
+        for (let i = tx; i < end; i++) this.tileSpr(i, ty + 1, false);
+      } else {
+        const x = (tx + len / 2) * TILE;
+        this.add.rectangle(x, (ty + 1) * TILE - 5, len * TILE, 10, 0x7a1f3d, 0.9).setDepth(1);
+      }
+      tx = end;
+    }
+    // DLC: one Christmas tree collectable per room, a little before the exit door
+    // (on the first tile with floor under it, so it never hangs over a gap)
+    if (this.xmasLevel()) {
+      const ex = Math.floor(this.exitPt.x / TILE);
+      const below = this.level.rows[Math.floor(this.exitPt.y / TILE) + 1] ?? "";
+      let tx = Math.max(2, ex - 3);
+      while (tx < ex - 1 && !"#=".includes(below[tx] ?? ".")) tx++;
+      this.dropXmas(tx * TILE + TILE / 2, this.exitPt.y - 24, "tree");
+    }
+  }
+
+  /* ---------------- 'Tis the Seasones DLC ---------------- */
+
+  private xmasLevel() {
+    return xmasOn() && !this.level.isHub && !this.level.isBoss && !this.isHouse;
+  }
+
+  private dropXmas(x: number, y: number, kind: CollectableKind) {
+    const info = COLLECTABLES[kind];
+    const s = this.pickups.create(x, y, XMAS_PK, info.frame) as Phaser.Physics.Arcade.Sprite;
+    s.setDisplaySize(kind === "tree" ? 46 : 38, kind === "tree" ? 46 : 38);
+    (s.body as Phaser.Physics.Arcade.Body).setAllowGravity(false);
+    s.setData("value", info.points);
+    s.setData("xmas", kind);
+    this.tweens.add({ targets: s, y: y - 6, yoyo: true, duration: 700, repeat: -1, ease: "Sine.easeInOut" });
+  }
+
+  private bootXmas() {
+    const on = xmasOn();
+    const coop = on && xmas().coop;
+    setCoopInput(coop);
+    if (!on && !this.isHouse) return;
+    if (coop) this.spawnPartner();
+    this.refreshCosmetics();
+    const onPost = (_t: number, delta: number) => {
+      for (const r of this.rigs) {
+        const spr = r.spr();
+        if (!spr?.active) continue;
+        const body = spr.body as Phaser.Physics.Arcade.Body;
+        r.rig.update(Math.min(delta, 50) / 1000, r.facing(), !(body.blocked.down || body.touching.down));
+      }
+    };
+    this.events.on("postupdate", onPost);
+    this.events.once("shutdown", () => this.events.off("postupdate", onPost));
+    // gentle snowfall everywhere the DLC is on (not inside the house)
+    if (on && !this.isHouse) {
+      this.add
+        .particles(0, 0, "px", {
+          x: { min: 0, max: 1280 },
+          y: -10,
+          lifespan: 7000,
+          speedY: { min: 30, max: 70 },
+          speedX: { min: -15, max: 15 },
+          scale: { start: 1, end: 0.6 },
+          alpha: { start: 0.75, end: 0.2 },
+          frequency: 90,
+          maxAliveParticles: 90,
+        })
+        .setScrollFactor(0)
+        .setDepth(12);
+    }
+  }
+
+  /** (Re)build the cosmetics drawn on P1/P2 — called after equipping at the pumpkin station. */
+  refreshCosmetics() {
+    this.rigs.forEach((r) => r.rig.destroy());
+    this.rigs = [];
+    if (!this.player) return;
+    if (!this.textures.exists(XMAS_PK)) return;
+    const add = (hero: HeroId, spr: () => Phaser.GameObjects.Sprite | null, facing: () => number) => {
+      const ids = activeCosmetics(xmas(), hero);
+      const target = spr();
+      if (!ids.length || !target) return;
+      this.rigs.push({ rig: new CosmeticRig(this, target, hero, ids), spr, facing });
+    };
+    add(this.hero, () => this.player, () => this.facing);
+    if (this.partner) add(this.partner.hero, () => this.partner?.spr ?? null, () => this.partner?.facing ?? 1);
+  }
+
+  /** DLC: jump straight to Cuboe and Cubro's Home (pause/options menu). */
+  enterHouse() {
+    this.scene.restart({ levelId: "home-living" });
+  }
+
+  private spawnPartner() {
+    const hero: HeroId = this.hero === "cuboe" ? "cubro" : "cuboe";
+    const spr = this.physics.add.sprite(this.spawn.x + 56, this.spawn.y, `${hero}-idle`, 0);
+    spr.setDisplaySize(64, 64);
+    spr.setCollideWorldBounds(true);
+    const body = spr.body as Phaser.Physics.Arcade.Body;
+    body.setGravityY(1900);
+    body.setMaxVelocity(780, 1100);
+    body.setSize(54, 78).setOffset(37, 42);
+    spr.play(`${hero}-idle`);
+    spr.setDepth(6);
+    const p: Partner = { spr, hero, facing: 1, coyote: 0, jumpBuf: 0, attackT: 0, dropT: 0 };
+    this.partner = p;
+    this.physics.add.collider(spr, this.solids);
+    this.physics.add.collider(spr, this.oneWay, undefined, (_p, plat) => {
+      if (p.dropT > 0) return false;
+      const pb = (plat as Phaser.Physics.Arcade.Sprite).body as Phaser.Physics.Arcade.StaticBody;
+      return body.velocity.y >= 0 && body.bottom <= pb.top + 8;
+    });
+    this.physics.add.overlap(spr, this.pickups, (_p, pk) => this.grab(pk as Phaser.Physics.Arcade.Sprite));
+    this.physics.add.overlap(spr, this.shots, (_p, sh) => {
+      const s = sh as Phaser.Physics.Arcade.Sprite;
+      if (s.getData("friendly")) return;
+      s.destroy();
+      this.hurt(1);
+    });
+    this.camTarget = this.add.zone(this.spawn.x, this.spawn.y, 1, 1);
+    this.add
+      .text(0, 0, "P2", { fontFamily: "Lilita One, Impact, sans-serif", fontSize: "14px", color: "#3ecf8e", stroke: "#140c0a", strokeThickness: 4 })
+      .setOrigin(0.5)
+      .setDepth(9)
+      .setName("p2tag");
+  }
+
+  private controlPartner(dt: number) {
+    const p = this.partner;
+    if (!p || !p.spr.active) return;
+    const a = readActionsP2();
+    const body = p.spr.body as Phaser.Physics.Arcade.Body;
+    const grounded = body.blocked.down || body.touching.down;
+    p.coyote = grounded ? 0.11 : Math.max(0, p.coyote - dt);
+    p.jumpBuf = a.jumpPressed ? 0.13 : Math.max(0, p.jumpBuf - dt);
+    if (p.attackT > 0) p.attackT -= dt;
+    if (p.dropT > 0) p.dropT -= dt;
+    if (a.moveX !== 0) p.facing = a.moveX;
+    p.spr.setFlipX(p.facing < 0);
+    if (a.down && a.jumpPressed && grounded) p.dropT = 0.22;
+    const run = a.run || p.hero === "cubro";
+    const max = run ? (p.hero === "cubro" ? 560 : 480) : 260;
+    if (a.moveX !== 0) body.setAccelerationX(a.moveX * (grounded ? 3200 : 1800));
+    else {
+      body.setAccelerationX(0);
+      body.setVelocityX(body.velocity.x * (grounded ? 0.78 : 0.94));
+    }
+    if (Math.abs(body.velocity.x) > max) body.setVelocityX(max * Math.sign(body.velocity.x));
+    const vy = body.velocity.y;
+    body.setGravityY(vy > 0 ? 3400 : vy > -90 ? 1200 : 1900);
+    if (this.isHouse && grounded && a.moveX !== 0 && !a.jump) this.stepUp(p.spr, a.moveX);
+    if (p.jumpBuf > 0 && p.coyote > 0 && p.dropT <= 0) {
+      body.setVelocityY(p.hero === "cubro" ? -820 : -760);
+      p.coyote = 0;
+      p.jumpBuf = 0;
+      sfx.jump();
+    }
+    if (!a.jump && body.velocity.y < 0) body.setVelocityY(body.velocity.y * 0.52);
+    if (a.attackPressed && p.attackT <= 0) {
+      p.attackT = 0.22;
+      p.spr.play(`${p.hero}-attack`, true);
+      sfx.attack();
+      const hx = p.spr.x + p.facing * (p.hero === "cubro" ? 54 : 42);
+      this.mobs.forEach((m) => {
+        if (m.spr.active && Phaser.Math.Distance.Between(hx, p.spr.y, m.spr.x, m.spr.y) < 50) this.hitMob(m, 1);
+      });
+    }
+    // stomp / bump enemies
+    if (this.hurtT <= 0 && this.invulnT <= 0) {
+      for (const m of this.mobs) {
+        if (!m.spr.active || m.kind === "boss") continue;
+        if (Phaser.Math.Distance.Between(p.spr.x, p.spr.y, m.spr.x, m.spr.y) >= 40) continue;
+        if (body.velocity.y > 80 && p.spr.y < m.spr.y) {
+          body.setVelocityY(-560);
+          this.hitMob(m, 1);
+        } else {
+          this.hurt(1);
+          body.setVelocity(-p.facing * 220, -240);
+        }
+        break;
+      }
+    }
+    if (p.attackT <= 0) {
+      const key = !grounded ? `${p.hero}-jump` : Math.abs(body.velocity.x) > 40 ? `${p.hero}-run` : `${p.hero}-idle`;
+      if (p.spr.anims.currentAnim?.key !== key) p.spr.play(key, true);
+    }
+    // leash: P2 can't get lost off-screen or fall out
+    const far = Math.abs(p.spr.x - this.player.x) > 1100 || Math.abs(p.spr.y - this.player.y) > 640;
+    if (far || p.spr.y > worldSize(this.level).h + 40) {
+      p.spr.setPosition(this.player.x - this.facing * 40, this.player.y - 20);
+      body.setVelocity(0, 0);
+    }
+    if (this.camTarget) this.camTarget.setPosition((this.player.x + p.spr.x) / 2, (this.player.y + p.spr.y) / 2);
+    const tag = this.children.getByName("p2tag") as Phaser.GameObjects.Text | null;
+    tag?.setPosition(p.spr.x, p.spr.y - 48);
   }
 
   private dropPickup(x: number, y: number, frame: number, value: number) {
@@ -400,20 +750,39 @@ export class PlayScene extends Phaser.Scene {
     this.mobs.push({ spr, kind, dir: Math.random() > 0.5 ? 1 : -1, hp: kind === "nincube" ? 2 : 1, next: 0 });
   }
 
-  private spawnBoss(x: number, y: number) {
+  private spawnBoss(x: number, _y: number) {
     const id = this.level.bossId ?? "f1-boss";
     const info = BOSSES[id]!;
-    const spr = this.physics.add.sprite(x, y, info.sprite, 0);
+    // Stand the boss ON the floor. Spawning at the tile centre left its 67px-tall body
+    // 18px inside the floor tile; that's more than Arcade's overlap bias, so the collider
+    // never separated it and gravity pulled it through to the world bottom (inside the floor).
+    const floorTop = this.arenaFloorTop(x);
+    const spr = this.physics.add.sprite(x, floorTop - BOSS_FEET, info.sprite, 0);
     spr.setDisplaySize(96, 96);
+    spr.setDepth(5); // in front of the ground tiles (depth 1), behind the heroes
     (spr.body as Phaser.Physics.Arcade.Body).setGravityY(2200);
     (spr.body as Phaser.Physics.Arcade.Body).setSize(80, 90).setOffset(24, 30);
+    spr.setData("floorTop", floorTop);
     spr.setCollideWorldBounds(true);
     this.physics.add.collider(spr, this.solids);
-    if (this.anims.exists(`${info.sprite}-idle`)) spr.play(`${info.sprite}-idle`);
+    const idle = this.anims.exists(`${info.sprite}-idle`) ? `${info.sprite}-idle` : info.sprite;
+    if (this.anims.exists(idle)) spr.play(idle);
     spr.setData("open", false);
-    this.mobs.push({ spr, kind: "boss", dir: -1, hp: info.lives, next: this.time.now + 800 });
+    spr.setData("phase", 1);
+    spr.setData("attacks", 0);
+    spr.setFlipX(true);
+    // Fake Cubro / Fake Cuboe: cursed sheets + aura, floating cursed bits and a glitch flicker.
+    const cursed = id === "f3-boss" || id === "f4-boss";
+    const rig = new BossRig(this, spr, { cursed });
+    const m: Mob = { spr, kind: "boss", dir: -1, hp: info.lives, next: this.time.now + 2000, rig };
+    this.mobs.push(m);
     this.label = info.name;
-    this.pop(x, y - 80, "HIT WHEN FLASHING");
+    rig.entrance(() => {
+      this.trauma = Math.min(1, this.trauma + 0.55);
+      sfx.bossSlam();
+      this.pop(x, floorTop - 130, info.name.toUpperCase());
+      this.time.delayedCall(500, () => this.pop(x, floorTop - 100, "HIT WHEN FLASHING"));
+    });
   }
 
   private spawnPlayer() {
@@ -462,11 +831,14 @@ export class PlayScene extends Phaser.Scene {
     pollGamepad(actions);
     if (actions.pausePressed) {
       this.frozen = true;
+      this.holdWorld(true);
       emitGame({ t: "pause" });
       return;
     }
     this.controlPlayer(actions, dt);
+    if (this.partner) this.controlPartner(dt);
     this.tickMobs();
+    this.tickHazards();
     this.tickGoal();
     this.tickInteract(actions);
     this.tickPizza(dt);
@@ -525,6 +897,8 @@ export class PlayScene extends Phaser.Scene {
     else if (vy > -90) body.setGravityY(1200);
     else body.setGravityY(1900);
 
+    if (this.isHouse && grounded && actions.moveX !== 0 && !actions.jump) this.stepUp(this.player, actions.moveX);
+
     if (this.jumpBuf > 0 && this.coyote > 0 && this.dropT <= 0) {
       body.setVelocityY(this.hero === "cubro" ? -820 : -760);
       this.coyote = 0;
@@ -547,6 +921,21 @@ export class PlayScene extends Phaser.Scene {
       else if (this.hero === "cubro" && promo.includes("were-cubro")) this.player.setTint(0xff6688);
       else this.player.clearTint();
     }
+  }
+
+  /** House stairs: walking into a one-tile step climbs it, so the staircases work like stairs. */
+  private stepUp(spr: Phaser.Physics.Arcade.Sprite, dir: number) {
+    const body = spr.body as Phaser.Physics.Arcade.Body;
+    if (!(dir > 0 ? body.blocked.right : body.blocked.left)) return;
+    const rows = this.level.rows;
+    const col = Math.floor((dir > 0 ? body.right + 2 : body.left - 2) / TILE);
+    const footRow = Math.floor((body.bottom - 2) / TILE);
+    const solid = (r: number) => rows[r]?.[col] === "#";
+    if (!solid(footRow) || solid(footRow - 1) || solid(footRow - 2)) return;
+    const lift = body.bottom - spr.y;
+    const vx = body.velocity.x;
+    body.reset(spr.x + dir * 6, footRow * TILE - lift - 1);
+    body.setVelocityX(vx || dir * 120);
   }
 
   private tickAnims() {
@@ -658,10 +1047,12 @@ export class PlayScene extends Phaser.Scene {
   private hitMob(m: Mob, dmg: number) {
     if (m.spr.getData("flash")) return;
     if (m.kind === "boss" && !m.spr.getData("open")) {
-      this.pop(m.spr.x, m.spr.y - 50, "FLASHING");
+      this.pop(m.spr.x, m.spr.y - 50, "WAIT FOR THE FLASH");
       return;
     }
+    if (m.dying) return;
     m.hp -= dmg;
+    if (m.kind === "boss") m.rig?.flinch(this.player.x < m.spr.x ? 1 : -1);
     m.spr.setTintFill(0xffffff);
     m.spr.setData("flash", true);
     this.time.delayedCall(80, () => {
@@ -677,28 +1068,71 @@ export class PlayScene extends Phaser.Scene {
     this.meter = Math.min(100, this.meter + 8);
     if (m.hp <= 0) {
       this.pop(m.spr.x, m.spr.y, m.kind === "boss" ? "KO" : "+100");
-      m.spr.destroy();
-      if (m.kind === "boss") this.winBoss();
+      if (m.kind === "boss") this.defeatBoss(m);
+      else {
+        m.spr.destroy();
+        this.kills++;
+      }
     }
+  }
+
+  /** Boss KO: stop the fight, clear its attacks, play the defeat burst, then the rank screen. */
+  private defeatBoss(m: Mob) {
+    m.dying = true;
+    m.spr.setData("move", "");
+    const body = m.spr.body as Phaser.Physics.Arcade.Body;
+    body.setVelocity(0, 0);
+    body.setAllowGravity(false);
+    body.setGravityY(0);
+    this.invulnT = Math.max(this.invulnT, 3);
+    this.hazards.forEach((h) => h.destroy());
+    this.hazards = [];
+    this.shots.getChildren().forEach((c) => {
+      if (!(c as Phaser.GameObjects.Sprite).getData("friendly")) c.destroy();
+    });
+    this.mobs.forEach((mm) => {
+      if (mm !== m && mm.spr.active) mm.spr.destroy();
+    });
+    this.trauma = Math.min(1, this.trauma + 0.8);
+    sfx.bossRoar();
+    const done = () => {
+      m.rig?.destroy();
+      m.spr.destroy();
+      this.winBoss();
+    };
+    if (m.rig) m.rig.defeat(() => this.time.delayedCall(0, done));
+    else done();
   }
 
   private tickMobs() {
     const now = this.time.now;
     for (const m of this.mobs) {
       if (!m.spr.active) continue;
+      if (m.spr.y > worldSize(this.level).h + TILE * 2) {
+        m.spr.destroy();
+        continue;
+      }
       const body = m.spr.body as Phaser.Physics.Arcade.Body;
-      m.spr.setFlipX(m.dir < 0);
+      if (!m.dying) m.spr.setFlipX(m.dir < 0);
       if (m.kind === "boss") {
-        this.tickBoss(m, now);
+        if (!m.dying) this.tickBoss(m, now);
+        m.rig?.sync(now, {
+          flash: !!m.spr.getData("flash"),
+          open: !!m.spr.getData("open"),
+          busy: !!m.spr.getData("move"),
+        });
         continue;
       }
       const spd = m.kind === "nincube" ? 90 : m.kind === "pump" ? 55 : 70;
       if (m.kind !== "cannon") body.setVelocityX(m.dir * spd);
       if (body.blocked.left) m.dir = 1;
       if (body.blocked.right) m.dir = -1;
-      if (m.kind === "cannon" && now > m.next) {
-        m.next = now + 1600;
-        this.shoot(m.spr.x + 24, m.spr.y, 1);
+      if (m.kind === "cannon") {
+        m.dir = this.player.x < m.spr.x ? -1 : 1;
+        if (now > m.next) {
+          m.next = now + 1600;
+          this.shoot(m.spr.x + m.dir * 24, m.spr.y, m.dir);
+        }
       }
       if (m.kind === "pump" && body.blocked.down && Math.random() < 0.01) body.setVelocityY(-420);
       if (this.hurtT <= 0 && this.shieldT <= 0 && this.invulnT <= 0 && this.player.active) {
@@ -718,56 +1152,113 @@ export class PlayScene extends Phaser.Scene {
     }
   }
 
-  private openBoss(m: Mob) {
+  private openBoss(m: Mob, ms = 700) {
     m.spr.setTint(0xffe088);
     m.spr.setData("open", true);
-    this.time.delayedCall(560, () => {
+    this.time.delayedCall(ms, () => {
       if (!m.spr.active) return;
       m.spr.clearTint();
       m.spr.setData("open", false);
     });
   }
 
-  private tickBoss(m: Mob, now: number) {
-    const id = this.level.bossId ?? "f1-boss";
-    if (id === "f1-boss") {
-      this.tickChocoMan(m, now);
-      return;
-    }
+  /** Safety net: if anything ever pushes a boss into the floor, put it back on top. */
+  private keepBossOnFloor(m: Mob) {
     const body = m.spr.body as Phaser.Physics.Arcade.Body;
-    const dx = this.player.x - m.spr.x;
-    m.dir = dx < 0 ? -1 : 1;
-    if (now < m.next) {
-      body.setVelocityX(0);
-      this.bossMelee(m, 52);
+    const floorTop = Number(m.spr.getData("floorTop") ?? this.arenaFloorTop(m.spr.x));
+    if (body.bottom > floorTop + 2) {
+      body.reset(m.spr.x, floorTop - BOSS_FEET);
+      body.setVelocityY(0);
+    }
+  }
+
+  private tickBoss(m: Mob, now: number) {
+    this.keepBossOnFloor(m);
+    const id = this.level.bossId ?? "f1-boss";
+    this.bossPhase(m, id);
+    if (id === "f1-boss") {
+      if (!m.rig?.entering) this.tickChocoMan(m, now);
       return;
     }
-    if (id === "f3-boss") {
-      body.setVelocityX(m.dir * 340);
-      m.next = now + 1100;
-      this.time.delayedCall(420, () => {
-        if (m.spr.active) {
-          (m.spr.body as Phaser.Physics.Arcade.Body).setVelocityX(0);
-          this.openBoss(m);
-        }
-      });
-    } else if (id === "f2-boss") {
-      this.shoot(m.spr.x, m.spr.y - 10, m.dir);
-      this.incoming++;
-      m.next = now + 1100;
-      this.openBoss(m);
-    } else if (id === "f4-boss") {
-      this.shoot(m.spr.x, m.spr.y, 1);
-      this.shoot(m.spr.x, m.spr.y, -1);
-      m.next = now + 1400;
-      this.openBoss(m);
-    } else {
-      this.shoot(m.spr.x, m.spr.y - 8, m.dir);
-      body.setVelocityX(m.dir * 160);
-      m.next = now + 800;
-      this.openBoss(m);
+    tickBrain(this.host(), id, m, now);
+  }
+
+  /** Phase 2 at 2/3 health, phase 3 at 1/3: roar, flash and a ring burst. */
+  private bossPhase(m: Mob, id: string) {
+    const max = BOSSES[id]?.lives ?? m.hp;
+    const p = phaseFor(m.hp, max);
+    const was = Number(m.spr.getData("phase") ?? 1);
+    if (p <= was) return;
+    m.spr.setData("phase", p);
+    m.rig?.phaseUp(BOSS_COLOR[id] ?? 0xffffff);
+    this.trauma = Math.min(1, this.trauma + 0.5);
+    this.cameras.main.flash(120, 255, 240, 200);
+    sfx.bossRoar();
+    this.pop(m.spr.x, m.spr.y - 110, p === 3 ? "FINAL PHASE!" : "PHASE 2!");
+    // a short roar pause before the new moves
+    m.next = Math.max(m.next, this.time.now + 700);
+  }
+
+  /** What the boss brains (src/game/bosses) can do in this room. */
+  private host(): BossHost {
+    if (this.bossHost) return this.bossHost;
+    const floorTop = this.arenaFloorTop(this.player?.x ?? 0);
+    this.bossHost = {
+      scene: this,
+      floorTop,
+      worldW: worldSize(this.level).w,
+      target: () => ({ x: this.player.x, y: this.player.y }),
+      shot: (x, y, vx, vy, o = {}) => {
+        const b = this.shots.create(x, y, "pickups", o.frame ?? 0) as Phaser.Physics.Arcade.Sprite;
+        b.setDisplaySize(o.w ?? 22, o.h ?? 22);
+        if (o.tint !== undefined) b.setTint(o.tint);
+        b.setDepth(7);
+        b.setData("friendly", false);
+        const body = b.body as Phaser.Physics.Arcade.Body;
+        body.setAllowGravity(!!o.gravity);
+        if (o.gravity) body.setGravityY(o.gravity);
+        body.setVelocity(vx, vy);
+        this.time.delayedCall(o.life ?? 2600, () => b.destroy());
+        return b;
+      },
+      hazard: (obj) => {
+        this.hazards.push(obj);
+      },
+      melee: (m, reach) => this.bossMelee(m, reach),
+      open: (m, ms) => this.openBoss(m, ms),
+      pop: (x, y, text) => this.pop(x, y, text),
+      shake: (n) => {
+        this.trauma = Math.min(1, this.trauma + n);
+      },
+      summon: (x) => {
+        const alive = this.mobs.filter((mm) => mm.kind !== "boss" && mm.spr.active).length;
+        if (alive >= 2) return false;
+        this.spawnMob(x, floorTop - 26, "boxguy");
+        return true;
+      },
+      sound: (k) => {
+        const map = { telegraph: sfx.bossWarn, fire: sfx.bossFire, slam: sfx.bossSlam, whoosh: sfx.bossWhoosh, zap: sfx.bossZap, roar: sfx.bossRoar };
+        map[k]();
+      },
+    };
+    return this.bossHost;
+  }
+
+  /** Boss hazard shapes hurt a hero who touches them (shield/invulnerability still protect). */
+  private tickHazards() {
+    if (!this.hazards.length) return;
+    this.hazards = this.hazards.filter((h) => h.active);
+    const heroes = [this.player, this.partner?.spr].filter((s): s is Phaser.Physics.Arcade.Sprite => !!s && s.active);
+    for (const h of this.hazards) {
+      if (h.alpha < 0.3) continue; // fading out
+      const r = h.getBounds();
+      for (const hero of heroes) {
+        const b = hero.body as Phaser.Physics.Arcade.Body;
+        if (!Phaser.Geom.Intersects.RectangleToRectangle(r, new Phaser.Geom.Rectangle(b.x, b.y, b.width, b.height))) continue;
+        if (this.shieldT > 0 || this.invulnT > 0 || this.hurtT > 0) continue;
+        this.hurt(1);
+      }
     }
-    this.bossMelee(m, 52);
   }
 
   private bossMelee(m: Mob, reach: number) {
@@ -777,6 +1268,11 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private endChocoMove(m: Mob, recover = 620) {
+    const was = String(m.spr.getData("move") ?? "");
+    if (was === "shoryuken" || was === "jump" || was === "tatsu") {
+      m.rig?.land();
+      this.trauma = Math.min(1, this.trauma + 0.2);
+    }
     m.spr.setData("move", "");
     m.spr.setRotation(0);
     const body = m.spr.body as Phaser.Physics.Arcade.Body;
@@ -792,6 +1288,10 @@ export class PlayScene extends Phaser.Scene {
     const dist = Math.abs(dx);
     const move = String(m.spr.getData("move") ?? "");
     const until = Number(m.spr.getData("moveUntil") ?? 0);
+    if (move && now > until + 4000) {
+      this.endChocoMove(m, 400); // watchdog: never stall mid-move
+      return;
+    }
     if (move !== "tatsu") m.dir = dx < 0 ? -1 : 1;
 
     if (move === "shoryuken") {
@@ -828,6 +1328,13 @@ export class PlayScene extends Phaser.Scene {
       if (now > until) this.endChocoMove(m, 680);
       return;
     }
+    if (move === "windup") {
+      // telegraph: he crouches and glows in the colour of the move that's coming
+      if (grounded) body.setVelocityX(body.velocity.x * 0.7);
+      this.bossMelee(m, 46);
+      if (now > until) this.chocoGo(m, String(m.spr.getData("pick") ?? "rush"));
+      return;
+    }
 
     if (now < m.next) {
       if (grounded) body.setVelocityX(body.velocity.x * 0.82);
@@ -846,6 +1353,17 @@ export class PlayScene extends Phaser.Scene {
     }
     if (angry && Math.random() < 0.4) pick = dist < 140 ? "shoryuken" : "tatsu";
 
+    // short wind-up so every move is readable (shorter when he's angry)
+    const wind = angry ? 300 : m.hp <= 6 ? 360 : 420;
+    this.beginChocoMove(m, "windup", now + wind);
+    m.spr.setData("pick", pick);
+    m.spr.setData("attacks", Number(m.spr.getData("attacks") ?? 0) + 1);
+    m.rig?.telegraph(CHOCO_TELL[pick] ?? 0xffffff, wind);
+    sfx.bossWarn();
+  }
+
+  private chocoGo(m: Mob, pick: string) {
+    m.rig?.release(pick === "shoryuken" || pick === "jump" ? "leap" : pick === "hadoken" ? "cast" : "lunge");
     if (pick === "hadoken") this.chocoHadoken(m);
     else if (pick === "shoryuken") this.chocoShoryuken(m);
     else if (pick === "tatsu") this.chocoTatsu(m);
@@ -959,6 +1477,9 @@ export class PlayScene extends Phaser.Scene {
 
   private grab(pk: Phaser.Physics.Arcade.Sprite) {
     const v = Number(pk.getData("value") ?? 20);
+    if (v <= 0) return; // hub Candy Bux spot: claimed with Up, not by touch
+    const xk = pk.getData("xmas") as CollectableKind | undefined;
+    if (xk) setXmas((s) => collect(s, xk));
     this.addCombo(v);
     useGame.getState().persist({ candyBux: useGame.getState().save.candyBux + (v >= 50 ? 50 : 5) });
     this.pop(pk.x, pk.y, `+${v}`);
@@ -991,26 +1512,36 @@ export class PlayScene extends Phaser.Scene {
         return;
       }
       this.hp = this.maxHp;
-      this.player.setPosition(this.spawn.x, this.spawn.y);
+      this.respawn();
     }
+  }
+
+  /** Back to the start, or to the exit door once Sugar Time is racing home (so a pit or death can't finish the room). */
+  private respawn() {
+    const at = this.goal === "start" ? { x: this.exitPt.x, y: this.exitPt.y - 8 } : this.spawn;
+    // reset() moves the body too; setPosition alone leaves it below the floor and it falls through.
+    (this.player.body as Phaser.Physics.Arcade.Body).reset(at.x, at.y);
   }
 
   private fallOut() {
     useGame.getState().persist({ pits: useGame.getState().save.pits + 1 });
     if (useGame.getState().save.pits >= 20) this.unlockLore("warlock");
     this.hurt(1);
-    this.player.setPosition(this.spawn.x, this.spawn.y);
-    (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+    if (!this.frozen) this.respawn();
   }
 
   private tickGoal() {
     if (this.level.isHub || this.level.isBoss) return;
     const target = this.goal === "exit" ? this.exitPt : this.spawn;
-    const d = Phaser.Math.Distance.Between(this.player.x, this.player.y, target.x, target.y);
-    if (d > 42) return;
+    // A tall box, so running or jumping through the door / start flag still counts.
+    // The start sits at the left wall and the exit door at the right wall, so overshooting
+    // either one (e.g. jumping a pit next to it) counts too.
+    const dx = this.player.x - target.x;
+    const past = (this.goal === "start" ? dx < 0 : dx > 0) && Math.abs(this.player.y - target.y) <= 160;
+    if (!past && (Math.abs(dx) > 56 || Math.abs(this.player.y - target.y) > 96)) return;
     if (this.goal === "exit") {
       if (this.level.isFinal) {
-        this.finish("normal");
+        this.escapePumpkin();
         return;
       }
       this.startSugarTime();
@@ -1027,8 +1558,13 @@ export class PlayScene extends Phaser.Scene {
     this.cameras.main.setBackgroundColor(0x3a1008);
     sfx.pizza();
     this.pop(this.player.x, this.player.y - 20, "SUGAR TIME");
+    if (this.startMark) {
+      this.startMark.setText("RUN BACK!").setColor("#ff4d7a");
+      this.tweens.add({ targets: this.startMark, scale: 1.25, yoyo: true, repeat: -1, duration: 320 });
+    }
+    // Ambush a few tiles back along the way home, not on top of the player at the door.
     for (let i = 0; i < 3; i++) {
-      this.spawnMob(this.exitPt.x - 80 - i * 70, this.exitPt.y - 8, i === 1 ? "nincube" : "boxguy");
+      this.spawnMob(this.exitPt.x - 300 - i * 110, this.exitPt.y - 60, i === 1 ? "nincube" : "boxguy");
     }
   }
 
@@ -1055,7 +1591,10 @@ export class PlayScene extends Phaser.Scene {
 
   private tickInteract(actions: ReturnType<typeof readActions>) {
     this.prompt = "";
-    if (!this.level.isHub && !this.level.isBoss) return;
+    if (!this.level.isHub && !this.level.isBoss) {
+      this.tickSecrets();
+      return;
+    }
     let nearest: (typeof this.interactives)[0] | null = null;
     let best = 70;
     for (const it of this.interactives) {
@@ -1077,6 +1616,11 @@ export class PlayScene extends Phaser.Scene {
       tv: "It's Me  ·  Up",
     };
     this.prompt = names[nearest.kind] ?? "Up";
+    if (nearest.kind.startsWith("home-")) {
+      this.prompt = `${nearest.label ?? "Look"}  ·  Up`;
+      if (actions.upPressed) this.useHouseThing(nearest);
+      return;
+    }
     if (nearest.kind === "metroid" && actions.attackPressed) {
       this.metroidHit = true;
       this.unlockLore("fake-cuboe");
@@ -1092,16 +1636,81 @@ export class PlayScene extends Phaser.Scene {
       emitGame({ t: "toast", text: "it's Me" });
       this.pop(nearest.x, nearest.y - 20, "it's Me");
     }
-    if (nearest.kind === "giver") {
-      useGame.getState().persist({ candyBux: useGame.getState().save.candyBux + 50 });
-      this.pop(nearest.x, nearest.y, "+50 BUX");
-    }
+    if (nearest.kind === "giver") this.claimGiver(nearest);
     if (nearest.kind === "rift") {
       this.unlockLore("rift");
       this.pop(nearest.x, nearest.y, "UNIVERSE RIFT");
     }
     if (nearest.kind === "boss") this.tryBoss();
     if (nearest.kind === "elevator") this.tryElevator();
+  }
+
+  private useHouseThing(it: { kind: string; id: string; x: number; y: number; label?: string }) {
+    if (it.kind === "home-door") {
+      sfx.door();
+      this.frozen = true;
+      this.cameras.main.fadeOut(160, 20, 12, 8);
+      this.time.delayedCall(170, () => this.scene.restart({ levelId: it.id, from: this.levelId }));
+    } else if (it.kind === "home-menu") {
+      sfx.door();
+      this.frozen = true;
+      emitGame({ t: "title" });
+    } else if (it.kind === "home-switch") {
+      sfx.ui();
+      const d = this.darkness;
+      if (d) d.setVisible(!d.visible);
+      const nub = (this as unknown as { __switchNub?: Phaser.GameObjects.Rectangle }).__switchNub;
+      nub?.setY(d?.visible ? nub.y + 12 : nub.y - 12);
+      this.pop(it.x, it.y - 40, d?.visible ? "Lights off" : "Lights on");
+    } else if (it.kind === "home-bed") {
+      sfx.ui();
+      this.cameras.main.fadeOut(400, 5, 3, 10);
+      this.time.delayedCall(700, () => this.cameras.main.fadeIn(500, 5, 3, 10));
+      this.hp = this.maxHp;
+      this.pop(it.x, it.y - 30, it.id === "cuboe" ? "Zzz... cozy" : "Zzz... rad dreams");
+    } else if (it.kind === "home-fire") {
+      sfx.ui();
+      this.pop(it.x, it.y - 60, "So warm!");
+    } else if (it.kind === "home-tree") {
+      sfx.win();
+      this.pop(it.x, it.y - 120, "Merry Christmas!");
+    }
+  }
+
+  /** Room secrets: drop into the spot under the rift "?", or touch a treasure. */
+  private tickSecrets() {
+    for (const it of [...this.interactives]) {
+      const dx = Math.abs(this.player.x - it.x);
+      if (it.kind === "rift" && dx < 44 && this.player.y > it.y + 100) {
+        this.interactives = this.interactives.filter((i) => i !== it);
+        this.unlockLore("rift");
+        this.pop(this.player.x, this.player.y - 20, "UNIVERSE RIFT");
+        sfx.pizza();
+      } else if (it.kind === "treasure" && dx < 40 && Math.abs(this.player.y - it.y) < 48) {
+        this.interactives = this.interactives.filter((i) => i !== it);
+        const save = useGame.getState().save;
+        if (!save.claimed.includes(it.id)) {
+          useGame.getState().persist({ candyBux: save.candyBux + 100, claimed: [...save.claimed, it.id] });
+        }
+        this.addCombo(1000);
+        this.pop(it.x, it.y - 20, "TREASURE +100 BUX");
+        sfx.win();
+        this.children.list.find((o) => o.getData?.("treasure") === it.id)?.destroy();
+      }
+    }
+  }
+
+  private claimGiver(it: (typeof this.interactives)[0]) {
+    const save = useGame.getState().save;
+    this.interactives = this.interactives.filter((i) => i !== it);
+    if (save.claimed.includes(it.id)) return;
+    useGame.getState().persist({ candyBux: save.candyBux + 50, claimed: [...save.claimed, it.id] });
+    this.pop(it.x, it.y, "+50 BUX");
+    sfx.pickup();
+    this.pickups.getChildren().forEach((c) => {
+      const s = c as Phaser.Physics.Arcade.Sprite;
+      if (Math.abs(s.x - it.x) < 4) s.destroy();
+    });
   }
 
   private tryBoss() {
@@ -1145,7 +1754,10 @@ export class PlayScene extends Phaser.Scene {
     const completed = save.completed.includes(this.levelId) ? save.completed : [...save.completed, this.levelId];
     const ranks = { ...save.ranks, [this.levelId]: rank };
     if (save.highScore < this.score) useGame.getState().persist({ highScore: this.score });
-    useGame.getState().persist({ completed, ranks });
+    // Clearing a room pays candy bux so the 400-bux boss gate is reachable without farming.
+    const bonus = CLEAR_BUX[rank] ?? 75;
+    useGame.getState().persist({ completed, ranks, candyBux: useGame.getState().save.candyBux + bonus });
+    this.pop(this.player.x, this.player.y - 60, `+${bonus} BUX`);
     sfx.win();
     emitGame({ t: "rank", levelId: this.levelId, rank, score: this.score });
   }
@@ -1164,17 +1776,38 @@ export class PlayScene extends Phaser.Scene {
     emitGame({ t: "rank", levelId: id, rank, score: this.score + 3000 });
   }
 
-  private finish(ending: string) {
-    this.frozen = true;
+  /**
+   * Escaping the Rotting Pumpkin. Every escape is Normal; the run can also earn:
+   * Good — escape with 90+ seconds left (punched the Warlock out in time),
+   * Playco — escape without defeating anyone in the pumpkin (spared the Warlock),
+   * Omega — as Cubro with 40+ Super Saiyan Burst kills over the save.
+   * The best one earned is shown; all of them are saved.
+   */
+  private escapePumpkin() {
     const save = useGame.getState().save;
-    const endings = save.endings.includes(ending) ? save.endings : [...save.endings, ending];
+    const earned = ["normal"];
+    if (this.timer >= GOOD_ESCAPE_SECONDS) earned.push("good");
+    if (this.kills === 0) earned.push("playco");
+    if (this.hero === "cubro" && save.saiyanKills >= OMEGA_BURST_KILLS) earned.push("omega");
+    this.finish(earned);
+  }
+
+  private finish(earned: string | string[]) {
+    this.frozen = true;
+    const list = Array.isArray(earned) ? earned : [earned];
+    const save = useGame.getState().save;
+    const endings = [...save.endings];
+    for (const e of list) if (!endings.includes(e)) endings.push(e);
+    const others = ["normal", "bad", "good", "playco", "omega"];
+    const gotTrue = !endings.includes("true") && others.every((e) => endings.includes(e));
+    if (gotTrue) endings.push("true");
     useGame.getState().persist({ endings });
-    if (endings.length >= 5 && !endings.includes("true")) {
-      useGame.getState().persist({ endings: [...endings, "true"] });
+    if (gotTrue) {
       emitGame({ t: "win", ending: "true" });
       return;
     }
-    emitGame({ t: "win", ending });
+    const best = ["omega", "playco", "good", "normal", "bad"].find((e) => list.includes(e)) ?? list[0]!;
+    emitGame({ t: "win", ending: best });
   }
 
   private unlockLore(id: string) {
@@ -1203,6 +1836,8 @@ export class PlayScene extends Phaser.Scene {
 
   private pushHud() {
     const rank = rankFromScore(this.score, this.damaged, this.secrets);
+    const boss = this.level.isBoss ? this.mobs.find((m) => m.kind === "boss") : undefined;
+    const bossMax = boss ? (BOSSES[this.level.bossId ?? ""]?.lives ?? 0) : 0;
     emitGame({
       t: "hud",
       score: this.score,
@@ -1216,16 +1851,34 @@ export class PlayScene extends Phaser.Scene {
       rank,
       label: this.prompt || this.label,
       meter: this.meter,
+      bossHp: boss ? Math.max(0, boss.hp) : 0,
+      bossMax,
     });
   }
 
   freeze() {
     this.frozen = true;
     setInjected([]);
+    this.holdWorld(true);
   }
 
   unfreeze() {
     this.frozen = false;
+    this.holdWorld(false);
+  }
+
+  /** Pause/resume physics, timers and tweens with the pause menu, so a boss's attack doesn't play out behind it. */
+  private holdWorld(on: boolean) {
+    if (!this.sys?.isActive() && on) return;
+    if (on) {
+      this.physics?.world?.pause();
+      if (this.time) this.time.paused = true;
+      this.tweens?.pauseAll();
+    } else {
+      this.physics?.world?.resume();
+      if (this.time) this.time.paused = false;
+      this.tweens?.resumeAll();
+    }
   }
 
   goHub() {
@@ -1233,12 +1886,87 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private wireControlsTest() {
-    const self = this;
     window.__controlsTest = {
-      getYaw: () => self.player?.x ?? 0,
-      getSpeed: () => Math.abs((self.player?.body as Phaser.Physics.Arcade.Body | undefined)?.velocity.x ?? 0),
+      getYaw: () => this.player?.x ?? 0,
+      getSpeed: () => Math.abs((this.player?.body as Phaser.Physics.Arcade.Body | undefined)?.velocity.x ?? 0),
       setKeys: (codes: string[]) => setInjected(codes),
+      // DLC test hooks (used by scripts/xmas-dlc-smoke.mjs)
+      dlc: {
+        goRoom: (id: string, from?: string) => this.scene.restart({ levelId: id, from }),
+        teleport: (x: number, y: number) => this.player?.setPosition(x, y),
+        zoom: (z: number) => this.cameras.main.setZoom(z),
+        // Guarded: during scene.restart the pickups group is torn down (children undefined), so never throw.
+        state: () => {
+          try {
+            return this.testState();
+          } catch {
+            return { level: "", hp: 0, lives: 0, x: 0, y: 0, score: 0, prompt: "", partner: null, cosmetics: 0, xmasPickups: 0, xmasList: [], things: [] };
+          }
+        },
+        boss: () => {
+          try {
+            return this.testBoss();
+          } catch {
+            return null;
+          }
+        },
+      },
     };
+  }
+
+  private testPickups(): Phaser.GameObjects.Sprite[] {
+    const g = this.pickups as Phaser.Physics.Arcade.Group | undefined;
+    if (!g || !g.children) return [];
+    return g.getChildren().map((c) => c as Phaser.GameObjects.Sprite);
+  }
+
+  private testState() {
+    const pk = this.testPickups();
+    return {
+          level: this.levelId,
+          hp: this.hp,
+          lives: this.lives,
+          x: this.player?.x ?? 0,
+          y: this.player?.y ?? 0,
+          score: this.score,
+          prompt: this.prompt,
+          partner: this.partner ? { hero: this.partner.hero, x: this.partner.spr.x, y: this.partner.spr.y } : null,
+          cosmetics: this.rigs.length,
+          xmasPickups: pk.filter((c) => c.getData("xmas")).length,
+          xmasList: pk.filter((c) => c.getData("xmas")).map((c) => ({ kind: String(c.getData("xmas")), x: c.x, y: c.y })),
+          things: this.interactives.map((i) => ({ kind: i.kind, id: i.id, x: i.x, y: i.y, label: i.label })),
+    };
+  }
+
+  /** Boss probe for tests: body vs the arena floor, hp, current move and phase. */
+  private testBoss() {
+    const m = this.mobs.find((b) => b.kind === "boss" && b.spr.active);
+    if (!m) return null;
+    const body = m.spr.body as Phaser.Physics.Arcade.Body;
+    return {
+      id: this.level.bossId ?? "",
+      x: m.spr.x,
+      y: m.spr.y,
+      hp: m.hp,
+      open: !!m.spr.getData("open"),
+      move: String(m.spr.getData("move") ?? ""),
+      phase: Number(m.spr.getData("phase") ?? 1),
+      attacks: Number(m.spr.getData("attacks") ?? 0),
+      bodyTop: body.top,
+      bodyBottom: body.bottom,
+      spriteBottom: (m.rig?.vis ?? m.spr).getBounds().bottom,
+      floorTop: this.arenaFloorTop(m.spr.x),
+      grounded: body.blocked.down || body.touching.down,
+      depth: m.spr.depth,
+    };
+  }
+
+  /** Top of the solid floor directly under x (bottom of the world if there's none). */
+  private arenaFloorTop(x: number) {
+    const tx = Math.floor(x / TILE);
+    const rows = this.level.rows;
+    for (let ty = 0; ty < rows.length; ty++) if (rows[ty]?.[tx] === "#") return ty * TILE;
+    return worldSize(this.level).h;
   }
 }
 
@@ -1248,6 +1976,41 @@ declare global {
       getYaw: () => number;
       getSpeed: () => number;
       setKeys?: (codes: string[]) => void;
+      dlc?: {
+        goRoom: (id: string, from?: string) => void;
+        teleport: (x: number, y: number) => void;
+        zoom: (z: number) => void;
+        state: () => {
+          level: string;
+          hp: number;
+          lives: number;
+          x: number;
+          y: number;
+          score: number;
+          prompt: string;
+          partner: { hero: string; x: number; y: number } | null;
+          cosmetics: number;
+          xmasPickups: number;
+          xmasList: { kind: string; x: number; y: number }[];
+          things: { kind: string; id: string; x: number; y: number; label?: string }[];
+        };
+        boss: () => {
+          id: string;
+          x: number;
+          y: number;
+          hp: number;
+          open: boolean;
+          move: string;
+          phase: number;
+          attacks: number;
+          bodyTop: number;
+          bodyBottom: number;
+          spriteBottom: number;
+          floorTop: number;
+          grounded: boolean;
+          depth: number;
+        } | null;
+      };
     };
   }
 }

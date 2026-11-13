@@ -1,5 +1,6 @@
 import { SAVE_KEY, SAVE_VERSION } from "./config";
 import type { HeroId, Rank } from "./data/world";
+import { XMAS_DEFAULTS, normalizeXmas, type XmasSave } from "./dlc/logic";
 
 export interface SaveData {
   version: number;
@@ -18,7 +19,11 @@ export interface SaveData {
   pits: number;
   saiyanKills: number;
   minigames: Record<string, Rank>;
+  /** One-time grants already collected (hub Candy Bux spots, treasures). */
+  claimed: string[];
   settings: { sfx: number; music: number; shake: boolean };
+  /** 'Tis the Seasones DLC. Inert unless dlc.xmas.enabled. */
+  dlc: { xmas: XmasSave };
 }
 
 const DEFAULTS: SaveData = {
@@ -38,11 +43,19 @@ const DEFAULTS: SaveData = {
   pits: 0,
   saiyanKills: 0,
   minigames: {},
+  claimed: [],
   settings: { sfx: 0.8, music: 0.45, shake: true },
+  dlc: { xmas: XMAS_DEFAULTS },
 };
 
 function migrate(raw: SaveData): SaveData {
-  return { ...DEFAULTS, ...raw, version: SAVE_VERSION, settings: { ...DEFAULTS.settings, ...raw.settings } };
+  return {
+    ...DEFAULTS,
+    ...raw,
+    version: SAVE_VERSION,
+    settings: { ...DEFAULTS.settings, ...raw.settings },
+    dlc: { ...raw.dlc, xmas: normalizeXmas(raw.dlc?.xmas) },
+  };
 }
 
 export function loadSave(): SaveData {

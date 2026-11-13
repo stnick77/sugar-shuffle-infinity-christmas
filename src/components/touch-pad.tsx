@@ -1,4 +1,5 @@
 import type { PointerEvent } from "react";
+import { twMerge } from "tailwind-merge";
 import { setTouch } from "@/game/input";
 
 function PadBtn({
@@ -12,7 +13,11 @@ function PadBtn({
 }) {
   const press = (e: PointerEvent) => {
     e.preventDefault();
-    (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    try {
+      (e.currentTarget as HTMLElement).setPointerCapture(e.pointerId);
+    } catch {
+      /* pointer already gone; the press still counts */
+    }
     setTouch(code, true);
   };
   const release = (e: PointerEvent) => {
@@ -22,11 +27,11 @@ function PadBtn({
   return (
     <button
       type="button"
-      className={
-        "select-none rounded-[18px] border border-cream/15 bg-ink/70 text-cream shadow-[0_8px_0_#00000055] " +
-        "text-sm font-extrabold uppercase tracking-wide active:translate-y-0.5 active:shadow-none " +
-        (className ?? "h-14 w-14")
-      }
+      className={twMerge(
+        "h-12 w-12 select-none rounded-[18px] border border-cream/15 bg-ink/45 text-cream shadow-[0_6px_0_#00000055] sm:h-14 sm:w-14 " +
+          "text-xs font-extrabold uppercase tracking-wide active:translate-y-0.5 active:shadow-none sm:text-sm",
+        className,
+      )}
       onPointerDown={press}
       onPointerUp={release}
       onPointerCancel={release}
@@ -37,19 +42,31 @@ function PadBtn({
   );
 }
 
+/**
+ * On-screen controls. Only shown on touch screens; keyboard and gamepad players don't need them.
+ * They press P1's keys (WASD, not the arrows) so they still drive P1 when DLC co-op gives the arrows to P2.
+ */
 export function TouchPad() {
   return (
-    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 flex items-end justify-between p-3 pb-[max(12px,env(safe-area-inset-bottom))] md:p-4">
-      <div className="pointer-events-auto flex gap-2">
-        <PadBtn code="ArrowLeft" label="A" />
-        <PadBtn code="ArrowRight" label="D" />
-        <PadBtn code="ArrowUp" label="Up" />
+    <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 hidden items-end justify-between gap-2 p-2 pb-[max(10px,env(safe-area-inset-bottom))] pointer-coarse:flex md:p-4">
+      <div className="pointer-events-auto grid grid-cols-3 gap-1.5 sm:gap-2">
+        <span />
+        <PadBtn code="KeyW" label="Up" />
+        <span />
+        <PadBtn code="KeyA" label="◀" />
+        <PadBtn code="KeyS" label="Down" className="text-[10px] sm:text-xs" />
+        <PadBtn code="KeyD" label="▶" />
       </div>
-      <div className="pointer-events-auto flex gap-2">
-        <PadBtn code="ShiftLeft" label="Run" className="h-14 w-[4.2rem]" />
-        <PadBtn code="KeyJ" label="Hit" className="h-14 w-[4.2rem] bg-candy/80" />
-        <PadBtn code="Space" label="Jump" className="h-16 w-16 bg-cream text-ink" />
+      <div className="pointer-events-auto grid grid-cols-3 gap-1.5 sm:gap-2">
+        <PadBtn code="KeyQ" label="Spec" className="bg-mint/35 text-[10px] sm:text-xs" />
+        <PadBtn code="ShiftLeft" label="Run" />
+        <span />
+        <PadBtn code="KeyJ" label="Hit" className="bg-candy/70 text-ink" />
+        <PadBtn code="Space" label="Jump" className="col-span-2 w-full bg-cream/90 text-ink" />
       </div>
+      <p className="pointer-events-none absolute inset-x-0 top-[-2rem] hidden text-center text-xs text-cream-dim portrait:block">
+        Turn your phone sideways for a bigger view
+      </p>
     </div>
   );
 }

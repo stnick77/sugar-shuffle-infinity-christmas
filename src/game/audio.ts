@@ -4,7 +4,8 @@ let sfxBus: GainNode | null = null;
 let musicBus: GainNode | null = null;
 let musicTimer: number | null = null;
 
-export function unlockAudio() {
+/** Create/resume the audio context. Pass the saved volumes so a muted save stays muted. */
+export function unlockAudio(prefs?: { sfx: number; music: number }) {
   if (!ctx) {
     const AC = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
     ctx = new AC({ latencyHint: "interactive" });
@@ -14,8 +15,8 @@ export function unlockAudio() {
     sfxBus.connect(master);
     musicBus.connect(master);
     master.connect(ctx.destination);
-    sfxBus.gain.value = 0.8;
-    musicBus.gain.value = 0.35;
+    sfxBus.gain.value = prefs ? prefs.sfx * prefs.sfx : 0.8;
+    musicBus.gain.value = prefs ? prefs.music * prefs.music : 0.35;
     master.gain.value = 0.9;
   }
   if (ctx.state === "suspended") void ctx.resume();
@@ -74,11 +75,37 @@ export const sfx = {
     beep(90, 0.2, "triangle", 0.1, 80);
   },
   tatsu: () => beep(140, 0.26, "triangle", 0.11, 90),
+  // boss moves
+  bossWarn: () => beep(520, 0.18, "triangle", 0.07, 260),
+  bossFire: () => beep(300, 0.12, "square", 0.08, -160),
+  bossSlam: () => {
+    beep(60, 0.3, "triangle", 0.16, -20);
+    beep(120, 0.12, "square", 0.06, -60);
+  },
+  bossWhoosh: () => beep(200, 0.16, "sawtooth", 0.05, 380),
+  bossZap: () => beep(900, 0.22, "sawtooth", 0.06, -600),
+  bossRoar: () => {
+    beep(90, 0.45, "sawtooth", 0.12, 60);
+    beep(140, 0.4, "square", 0.06, -50);
+  },
 };
+
+/**
+ * Optional music hook (used by the 'Tis the Seasones DLC). When it returns
+ * true it has started its own music and the base loop is skipped. Unset or
+ * returning false = base game music, exactly as before.
+ */
+type MusicHook = { start: (ctx: AudioContext, bus: GainNode) => boolean; stop: () => void };
+let musicHook: MusicHook | null = null;
+
+export function setMusicHook(hook: MusicHook | null) {
+  musicHook = hook;
+}
 
 export function startMusic() {
   if (!ctx || !musicBus) return;
   stopMusic();
+  if (musicHook?.start(ctx, musicBus)) return;
   const notes = [196, 247, 294, 330, 392, 330, 294, 247];
   let i = 0;
   const tick = () => {
@@ -100,6 +127,7 @@ export function startMusic() {
 }
 
 export function stopMusic() {
+  musicHook?.stop();
   if (musicTimer != null) {
     clearTimeout(musicTimer);
     musicTimer = null;

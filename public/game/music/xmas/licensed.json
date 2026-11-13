@@ -1,0 +1,8 @@
+{
+  "_readme": "Drop-in slots for the five songs on Hayden's design sheet. They are copyrighted, so no audio ships with the game. If you own a licence for a recording, put the file in this folder (mp3/ogg/m4a) and set its file name below, e.g. \"jingle-bell-rock.mp3\". Leave \"\" to keep the slot empty. See DLC.md.",
+  "all-i-want-for-christmas-is-you": "",
+  "most-wonderful-time-of-the-year": "",
+  "santa-claus-lane": "",
+  "jingle-bell-rock": "",
+  "rockin-around-the-christmas-tree": ""
+}
