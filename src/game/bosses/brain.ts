@@ -47,10 +47,11 @@ const body = (m: BossMob) => m.spr.body as Phaser.Physics.Arcade.Body;
 const alive = (m: BossMob) => m.spr.active && !m.dying;
 const grounded = (m: BossMob) => body(m).blocked.down || body(m).touching.down;
 
-/** "cubro-idle" → "cubro" for the fake heroes, so they can use the real heroes' run/jump/attack frames. */
+/** "fake-cubro-idle" → "fake-cubro": the fake heroes have their own run/jump/attack sheets. */
 function heroOf(m: BossMob) {
   const k = m.spr.texture.key;
-  return k.startsWith("cubro") ? "cubro" : k.startsWith("cuboe") ? "cuboe" : "";
+  const hit = /^(fake-)?(cubro|cuboe)-/.exec(k);
+  return hit ? `${hit[1] ?? ""}${hit[2]}` : "";
 }
 
 function anim(host: BossHost, m: BossMob, a: "idle" | "run" | "jump" | "attack") {

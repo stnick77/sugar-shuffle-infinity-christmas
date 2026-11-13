@@ -193,6 +193,14 @@ export class PlayScene extends Phaser.Scene {
     sheet("outlaw", "/game/sprites/outlaw.png");
     sheet("warlock", "/game/sprites/warlock.png");
     sheet("pickups", "/game/sprites/pickups.png");
+    s("door-room", "/game/sprites/door-room.png");
+    s("door-boss", "/game/sprites/door-boss.png");
+    if (room.bossId === "f3-boss" || room.bossId === "f4-boss") {
+      // cursed Fake Candy Cuboe / Cubro (own sheets, same frame layout as the heroes)
+      for (const h of ["cuboe", "cubro"] as const) {
+        for (const a of ["idle", "run", "jump", "attack"] as const) sheet(`fake-${h}-${a}`, `/game/sprites/fake-${h}-${a}.png`);
+      }
+    }
     sheet("props", "/game/sprites/props.png");
     if (xmasOn() || this.isHouse) preloadXmas(this);
   }
@@ -329,6 +337,13 @@ export class PlayScene extends Phaser.Scene {
       mk(`${h}-jump`, `${h}-jump`, 8, 0);
       mk(`${h}-attack`, `${h}-attack`, 14, 0);
     }
+    for (const h of ["cuboe", "cubro"] as const) {
+      if (!this.textures.exists(`fake-${h}-idle`)) continue;
+      mk(`fake-${h}-idle`, `fake-${h}-idle`, 7, -1);
+      mk(`fake-${h}-run`, `fake-${h}-run`, 12, -1);
+      mk(`fake-${h}-jump`, `fake-${h}-jump`, 8, 0);
+      mk(`fake-${h}-attack`, `fake-${h}-attack`, 14, 0);
+    }
     mk("boxguy-walk", "boxguy", 8, -1);
     mk("nincube-walk", "nincube", 12, -1);
     mk("pump-walk", "pump", 8, -1);
@@ -377,28 +392,30 @@ export class PlayScene extends Phaser.Scene {
       .setDepth(8);
   }
 
-  private drawDoor(x: number, y: number, label: string, kind: "room" | "boss" | "up" | "pc", accent?: number) {
-    const g = this.add.graphics().setDepth(2);
-    const w = 46;
-    const h = 72;
-    const top = y - 20 - h / 2;
-    const col = kind === "boss" ? 0x1a0808 : kind === "up" ? 0x2a1810 : 0x3a1a10;
-    const line = accent ?? (kind === "boss" ? 0xff4d7a : 0xfff4d6);
-    g.fillStyle(col, 1);
-    g.fillRoundedRect(x - w / 2, top, w, h, 8);
-    g.lineStyle(3, line, 0.95);
-    g.strokeRoundedRect(x - w / 2, top, w, h, 8);
+  private drawDoor(x: number, y: number, label: string, kind: "room" | "boss" | "up" | "pc" | "exit", accent?: number) {
+    const bottom = y + TILE / 2 - 4; // stand on the floor tile below
     if (kind === "boss") {
-      g.fillStyle(0xfff4d6, 1);
-      g.fillTriangle(x - 20, top + 4, x - 12, top - 18, x - 4, top + 4);
-      g.fillTriangle(x + 20, top + 4, x + 12, top - 18, x + 4, top + 4);
+      // frosted boss door: pulsing glow behind it
+      const glow = this.add.ellipse(x, bottom - 46, 92, 112, 0xff4d8a, 0.28).setDepth(1.9);
+      this.tweens.add({ targets: glow, alpha: 0.08, scale: 1.08, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+      this.add.image(x, bottom, "door-boss").setOrigin(0.5, 1).setDisplaySize(68, 92).setDepth(2);
+      this.marker(x, bottom - 104, label);
+      return;
     }
+    // gingerbread door; its round window glows in the room's accent colour
+    const win = accent ?? (kind === "up" ? 0x7dff9a : kind === "pc" ? 0x8be9ff : kind === "exit" ? 0xffe066 : 0xfff4d6);
+    const lamp = this.add.circle(x, bottom - 41, 6, win, 1).setDepth(1.95);
+    this.tweens.add({ targets: lamp, alpha: 0.65, duration: 1100, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    this.add.image(x, bottom, "door-room").setOrigin(0.5, 1).setDisplaySize(46, 72).setDepth(2);
     if (kind === "up") {
-      g.fillStyle(0xfff4d6, 1);
-      g.fillTriangle(x, top + 14, x - 12, top + 34, x + 12, top + 34);
+      const g = this.add.graphics().setDepth(2.1);
+      g.fillStyle(0x7dff9a, 1).lineStyle(2, 0x22120e, 1);
+      g.fillTriangle(x, bottom - 30, x - 8, bottom - 18, x + 8, bottom - 18);
+      g.strokeTriangle(x, bottom - 30, x - 8, bottom - 18, x + 8, bottom - 18);
     }
-    this.marker(x, top - 14, label);
+    this.marker(x, bottom - 86, label);
   }
+
 
   private buildMap() {
     const floor = useGame.getState().save.floor;
@@ -476,7 +493,7 @@ export class PlayScene extends Phaser.Scene {
       }
     });
     if (!this.level.isHub && !this.level.isBoss) {
-      this.add.sprite(this.exitPt.x, this.exitPt.y - 16, "props", 1).setDisplaySize(56, 72).setDepth(2);
+      this.drawDoor(this.exitPt.x, this.exitPt.y, "EXIT", "exit");
       this.drawStartFlag();
       this.buildPits();
     }
@@ -754,9 +771,9 @@ export class PlayScene extends Phaser.Scene {
     spr.setData("phase", 1);
     spr.setData("attacks", 0);
     spr.setFlipX(true);
-    // Fake Cubro / Fake Cuboe get a sour-candy tint so they read as the copies.
-    const tint = id === "f3-boss" ? 0xe0b0ff : id === "f4-boss" ? 0xb0f0ff : undefined;
-    const rig = new BossRig(this, spr, { tint });
+    // Fake Cubro / Fake Cuboe: cursed sheets + aura, floating cursed bits and a glitch flicker.
+    const cursed = id === "f3-boss" || id === "f4-boss";
+    const rig = new BossRig(this, spr, { cursed });
     const m: Mob = { spr, kind: "boss", dir: -1, hp: info.lives, next: this.time.now + 2000, rig };
     this.mobs.push(m);
     this.label = info.name;

@@ -22,6 +22,8 @@ export class BossRig {
   private glowColor = 0xffffff;
   private base: number;
   private tintBase: number | undefined;
+  /** cursed fakes: dark aura, floating cursed bits, glitch flicker */
+  private cursed: { aura: Phaser.GameObjects.Ellipse; bits: Phaser.GameObjects.Particles.ParticleEmitter; nextGlitch: number; glitchUntil: number } | null = null;
   entering = false;
   dying = false;
   hidden = false;
@@ -29,7 +31,7 @@ export class BossRig {
   constructor(
     private scene: Phaser.Scene,
     private spr: Phaser.Physics.Arcade.Sprite,
-    opts: { tint?: number; scale?: number } = {},
+    opts: { tint?: number; scale?: number; cursed?: boolean } = {},
   ) {
     this.base = opts.scale ?? 0.75;
     this.tintBase = opts.tint;
@@ -54,6 +56,22 @@ export class BossRig {
       emitting: false,
     });
     this.sparks.setDepth(29);
+    if (opts.cursed) {
+      const aura = scene.add.ellipse(spr.x, 0, 130, 120, 0x2a0a3a, 0.35).setDepth(4.75);
+      scene.tweens.add({ targets: aura, scaleX: 1.12, scaleY: 1.08, alpha: 0.22, duration: 700, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+      const bits = scene.add.particles(0, 0, "px", {
+        frequency: 160,
+        lifespan: { min: 900, max: 1500 },
+        speedY: { min: -60, max: -25 },
+        speedX: { min: -14, max: 14 },
+        scale: { start: 1.8, end: 0 },
+        alpha: { start: 0.9, end: 0 },
+        tint: [0x9b5cff, 0x7dff3a, 0xff3ccf, 0x2a0a3a],
+        emitZone: { type: "random", source: new Phaser.Geom.Rectangle(-38, -80, 76, 80), quantity: 1 } as Phaser.Types.GameObjects.Particles.EmitZoneData,
+      });
+      bits.setDepth(5.1);
+      this.cursed = { aura, bits, nextGlitch: 0, glitchUntil: 0 };
+    }
   }
 
   private feet() {
@@ -108,6 +126,28 @@ export class BossRig {
     this.weak.setFillStyle(0xffe066, s.open ? 0.35 + Math.sin(now / 70) * 0.15 : 0);
     this.weak.setStrokeStyle(3, 0xfff4b0, s.open ? 0.9 : 0);
     this.mark.setPosition(v.x, feet - 104 + this.f.lift);
+    if (this.cursed) this.syncCursed(now, feet, s.flash || s.open);
+  }
+
+  /** Cursed fakes: aura + bits follow; every 1–2.5s a quick glitch (jitter, skew, colour split). */
+  private syncCursed(now: number, feet: number, busyTint: boolean) {
+    const c = this.cursed!;
+    const v = this.vis;
+    c.aura.setPosition(this.spr.x, feet - 44 + this.f.lift).setVisible(!this.hidden && !this.dying);
+    c.bits.setPosition(this.spr.x, feet + this.f.lift);
+    c.bits.emitting = !this.hidden && !this.dying;
+    if (this.dying || this.entering) return;
+    if (now > c.nextGlitch) {
+      c.glitchUntil = now + 140;
+      c.nextGlitch = now + 1000 + Math.random() * 1500;
+    }
+    if (now < c.glitchUntil) {
+      const step = Math.floor(now / 35) % 2;
+      v.x += step ? 4 : -3;
+      v.setScale(v.scaleX * (step ? 1.08 : 0.94), v.scaleY);
+      v.setAlpha(v.alpha * 0.8);
+      if (!busyTint) v.setTint(step ? 0x6cfff0 : 0xff4fd8);
+    }
   }
 
   /** floor line under the boss (for shadow + markers) */
@@ -288,5 +328,9 @@ export class BossRig {
 
   destroy() {
     for (const o of [this.vis, this.aura, this.shadow, this.weak, this.mark, this.sparks]) o.destroy();
+    if (this.cursed) {
+      this.cursed.aura.destroy();
+      this.cursed.bits.destroy();
+    }
   }
 }

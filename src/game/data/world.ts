@@ -151,7 +151,7 @@ export const BOSSES: Record<
   },
   "f3-boss": {
     name: "Fake Candy Cubro",
-    sprite: "cubro-idle",
+    sprite: "fake-cubro-idle",
     lives: 6,
     moves: ["Tornado copy", "Rocket shot", "Board rush"],
     hitWhen: "Same windows as Cubro — strike during recovery.",
@@ -159,7 +159,7 @@ export const BOSSES: Record<
   },
   "f4-boss": {
     name: "Fake Candy Cuboe",
-    sprite: "cuboe-idle",
+    sprite: "fake-cuboe-idle",
     lives: 6,
     moves: ["Aeraste copy", "Laser spin", "Shield bash"],
     hitWhen: "Same windows as Cuboe.",
