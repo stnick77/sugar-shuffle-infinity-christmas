@@ -37,6 +37,9 @@ function bgKeyFor(path: string) {
 const GOOD_ESCAPE_SECONDS = 90;
 const OMEGA_BURST_KILLS = 40;
 
+/** Boss sprite centre sits this far above its feet (96px display, body bottom at 120/128 of the frame). */
+const BOSS_FEET = 42;
+
 const CLEAR_BUX: Record<string, number> = { P: 250, S: 200, A: 175, B: 150, C: 125, D: 100, F: 75 };
 
 type Mob = {
@@ -712,10 +715,16 @@ export class PlayScene extends Phaser.Scene {
   private spawnBoss(x: number, y: number) {
     const id = this.level.bossId ?? "f1-boss";
     const info = BOSSES[id]!;
-    const spr = this.physics.add.sprite(x, y, info.sprite, 0);
+    // Stand the boss ON the floor. Spawning at the tile centre left its 67px-tall body
+    // 18px inside the floor tile; that's more than Arcade's overlap bias, so the collider
+    // never separated it and gravity pulled it through to the world bottom (inside the floor).
+    const floorTop = this.arenaFloorTop(x);
+    const spr = this.physics.add.sprite(x, floorTop - BOSS_FEET, info.sprite, 0);
     spr.setDisplaySize(96, 96);
+    spr.setDepth(5); // in front of the ground tiles (depth 1), behind the heroes
     (spr.body as Phaser.Physics.Arcade.Body).setGravityY(2200);
     (spr.body as Phaser.Physics.Arcade.Body).setSize(80, 90).setOffset(24, 30);
+    spr.setData("floorTop", floorTop);
     spr.setCollideWorldBounds(true);
     this.physics.add.collider(spr, this.solids);
     if (this.anims.exists(`${info.sprite}-idle`)) spr.play(`${info.sprite}-idle`);
@@ -1063,7 +1072,18 @@ export class PlayScene extends Phaser.Scene {
     });
   }
 
+  /** Safety net: if anything ever pushes a boss into the floor, put it back on top. */
+  private keepBossOnFloor(m: Mob) {
+    const body = m.spr.body as Phaser.Physics.Arcade.Body;
+    const floorTop = Number(m.spr.getData("floorTop") ?? this.arenaFloorTop(m.spr.x));
+    if (body.bottom > floorTop + 2) {
+      body.reset(m.spr.x, floorTop - BOSS_FEET);
+      body.setVelocityY(0);
+    }
+  }
+
   private tickBoss(m: Mob, now: number) {
+    this.keepBossOnFloor(m);
     const id = this.level.bossId ?? "f1-boss";
     if (id === "f1-boss") {
       this.tickChocoMan(m, now);
