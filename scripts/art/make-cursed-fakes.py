@@ -173,7 +173,9 @@ def cursify(frame, hero, seed):
 
     # 4) mismatched glowing eyes + 5) too-many-teeth grin
     eyes = sorted([b for b in fb if b["n"] < 400 and (b["x1"] - b["x0"]) < body_w * 0.7], key=lambda b: b["cy"])
-    glasses = [b for b in fb if (b["x1"] - b["x0"]) >= body_w * 0.5]
+    # Cubro's shades are the biggest dark shape on his small cube head (his arms and legs
+    # make the body box wide, so any dark shape at least 18px wide on the head counts)
+    glasses = [b for b in fb if (b["x1"] - b["x0"]) >= body_w * (0.5 if hero != "cubro" else 0.0) and (hero != "cubro" or (b["x1"] - b["x0"]) >= 18)]
     if hero == "cubro" and glasses:
         g = max(glasses, key=lambda b: b["n"])
         gw = g["x1"] - g["x0"]
@@ -182,7 +184,7 @@ def cursify(frame, hero, seed):
         glow_eye(over, glow, g["x0"] + gw * 0.26, ey, r, P["eye"])
         glow_eye(over, glow, g["x0"] + gw * 0.74, ey, r * 1.45, EYE_B)
         gh = g["y1"] - g["y0"]
-        gy = g["y1"] + max(3, gh * 0.5)
+        gy = g["y1"] + 1  # right under the shades, spilling over his chin like a too-wide jaw
         grin(over, (g["x0"] + g["x1"]) / 2, gy, max(14, gw * 0.75), max(5, gh * 0.9))
     else:
         pair = []

@@ -24,10 +24,11 @@ const FIT: Record<HeroKey, Record<string, { frame: number; dx: number; dy: numbe
     "santa-hat": { frame: 0, dx: 2, dy: -24, w: 40, depth: 7 },
     "candy-cane-scarf": { frame: 3, dx: 0, dy: 10, w: 30, depth: 7 },
   },
+  // Cubro wears his attack-animation look everywhere now: small cube head, slim body, little board.
   cubro: {
-    "xmas-sweater": { frame: 2, dx: 0, dy: 10, w: 30, depth: 7 },
-    "xmas-skateboard": { frame: 1, dx: 0, dy: 27, w: 58, depth: 7 },
-    "candy-cane-scarf": { frame: 3, dx: 0, dy: 2, w: 28, depth: 7.5 },
+    "xmas-sweater": { frame: 2, dx: -1, dy: 6, w: 20, depth: 7 },
+    "xmas-skateboard": { frame: 1, dx: 1, dy: 23, w: 32, depth: 7 },
+    "candy-cane-scarf": { frame: 3, dx: 0, dy: 0, w: 16, depth: 7.5 },
   },
 };
 
