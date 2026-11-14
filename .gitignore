@@ -24,3 +24,4 @@ AGENTS.md
 *.tsbuildinfo
 .idea/
 .vscode/
+__pycache__/
