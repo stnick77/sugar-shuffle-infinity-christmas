@@ -46,6 +46,16 @@ straight from their in-game sheets (cuboe-jump arms-up frame, cubro-idle
 frame mirrored), into `public/game/sprites/credits-cuboe-cubro.png`. His
 photo stays in `assets/hayden/originals/credits.jpg`.
 
+`make-outlaw.py` draws the Marshmallow Outlaw boss sheet (f2-boss,
+`public/game/sprites/outlaw.png`, 2x2 128px idle frames, feet on y=118) from
+Hayden's redesign: a thinner, roasted-black marshmallow with toasted-brown
+edges, red glowing eyes, a green-and-purple bandana over his mouth, a gray
+cowboy hat and a golden pistol. Run `make-saloon-party.py` (he is the
+bartender) and `make-level-doors.py` (his wanted-poster door) after it. The
+old painted sheet, door and saloon background stay in `scripts/art/src/`
+(`outlaw-original.png`, `door-boss-outlaw-original.png`,
+`saloon-party-original.jpg`) for reverting.
+
 `make-saloon-party.py` draws the Drunk Saloon (level f3-3) background: a
 bar party with every boss (Choco Man, the Outlaw behind the bar, the Candy
 Warlock, Fake Cuboe, Fake Cubro and all three Admin Warlords) cut from their

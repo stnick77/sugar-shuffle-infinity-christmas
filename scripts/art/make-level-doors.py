@@ -9,7 +9,7 @@ third-party art). Same chunky ink outline + soft shading as make-doors.py.
   python3 scripts/art/make-level-doors.py
 """
 import importlib.util, math, os, random
-from PIL import Image, ImageDraw, ImageFont
+from PIL import Image, ImageDraw, ImageFilter, ImageFont
 
 HERE = os.path.dirname(__file__)
 spec = importlib.util.spec_from_file_location("doors_base", os.path.join(HERE, "make-doors.py"))
@@ -489,14 +489,29 @@ def boss_choco():
 
 
 def boss_outlaw():
+    # Wanted poster of the redesigned Outlaw (scripts/art/make-outlaw.py): gray
+    # cowboy hat, roasted-black marshmallow face, red glowing eyes and a
+    # green-and-purple bandana over his mouth.
     img = canvas(BW, BH)
     d = boss_frame(img, (190, 140, 90), (140, 96, 56), (250, 244, 230), (220, 206, 180))
-    d.polygon(P(20, 34, 116, 34, 104, 16, 86, 22, 68, 6, 50, 22, 32, 16), fill=(196, 130, 60, 255), outline=INK)  # hat brim
-    d.rectangle(P(20, 30, 116, 38), fill=(170, 110, 50, 255), outline=INK, width=2 * S)
+    d.polygon(P(20, 34, 116, 34, 104, 16, 86, 22, 68, 6, 50, 22, 32, 16), fill=(150, 148, 144, 255), outline=INK)  # gray hat brim
+    d.rectangle(P(20, 30, 116, 38), fill=(108, 106, 104, 255), outline=INK, width=2 * S)
     d.rectangle(P(40, 70, 96, 124), fill=(246, 230, 190, 255), outline=INK, width=3 * S)
     text(d, (68, 80), "WANTED", 12, (160, 40, 30, 255), stroke=(246, 230, 190, 255))
-    d.ellipse(P(52, 88, 84, 118), fill=(255, 250, 240, 255), outline=INK, width=2 * S)
-    d.ellipse(P(60, 98, 64, 102), fill=INK); d.ellipse(P(72, 98, 76, 102), fill=INK)
+    d.rounded_rectangle(P(54, 88, 82, 120), 6 * S, fill=(40, 32, 30, 255), outline=(150, 90, 40, 255), width=2 * S)  # charred face
+    glow = Image.new("RGBA", img.size, (0, 0, 0, 0))
+    gd = ImageDraw.Draw(glow)
+    for x in (62, 74):
+        gd.ellipse(P(x - 5, 92, x + 5, 102), fill=(255, 40, 30, 150))
+    img.alpha_composite(glow.filter(ImageFilter.GaussianBlur(3 * S)))
+    d = ImageDraw.Draw(img)
+    for x in (62, 74):
+        d.ellipse(P(x - 2.5, 95.5, x + 2.5, 98.5), fill=(255, 50, 40, 255))
+    d.polygon(P(54, 102, 82, 102, 70, 118, 66, 118), fill=(60, 176, 84, 255), outline=INK)  # bandana
+    for k in range(3):
+        x = 63 + k * 6
+        d.line(P(x, 104, x - 3, 110), fill=(136, 70, 196, 255), width=2 * S)
+    d.rectangle(P(54, 101, 82, 104), fill=(84, 38, 130, 255))
     for (x0, y0, x1, y1) in [(28, 140, 108, 140), (28, 160, 108, 160)]:
         d.line(P(x0, y0, x1, y1), fill=(170, 120, 60, 255), width=4 * S)  # rope
     return img

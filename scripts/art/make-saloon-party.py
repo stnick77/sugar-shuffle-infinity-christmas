@@ -353,7 +353,7 @@ def place(img: Image.Image, name: str, cx: int, foot: int, height: int, tilt: fl
 def guests(img: Image.Image) -> None:
     # Outlaw tends the bar (behind the counter, so only the top shows)
     behind = Image.new("RGBA", img.size, (0, 0, 0, 0))
-    place(behind, "outlaw", 700, 610, 300, tilt=-6, hat=None, shadow=False)
+    place(behind, "outlaw", 690, 640, 380, tilt=-6, hat=None, shadow=False)
     img.alpha_composite(behind)
     counter(img)
     m = mug(70, 8)
