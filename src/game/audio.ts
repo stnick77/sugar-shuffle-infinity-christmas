@@ -1,8 +1,15 @@
+import { levelSongPlaying, startLevelSong, stopLevelSong } from "./music/levelMusic.ts";
+
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let sfxBus: GainNode | null = null;
 let musicBus: GainNode | null = null;
 let musicTimer: number | null = null;
+/** Per-level song id (src/game/music/levelSongs.ts); null = the shared hub/menu loop. */
+let levelSong: string | null = null;
+let musicRunning = false;
+/** True while the DLC music hook owns the music (level songs then wait in the wings). */
+let hookPlaying = false;
 
 /** Create/resume the audio context. Pass the saved volumes so a muted save stays muted. */
 export function unlockAudio(prefs?: { sfx: number; music: number }) {
@@ -102,10 +109,24 @@ export function setMusicHook(hook: MusicHook | null) {
   musicHook = hook;
 }
 
+/** Pick the level's own song (or null for the shared loop); restarts music if it is playing. */
+export function setLevelSong(id: string | null) {
+  if (id === levelSong) return;
+  levelSong = id;
+  if (musicRunning && !hookPlaying) startMusic();
+}
+
+export function currentLevelSong() {
+  return levelSong;
+}
+
 export function startMusic() {
   if (!ctx || !musicBus) return;
   stopMusic();
-  if (musicHook?.start(ctx, musicBus)) return;
+  musicRunning = true;
+  hookPlaying = !!musicHook?.start(ctx, musicBus);
+  if (hookPlaying) return;
+  if (levelSong && startLevelSong(ctx, musicBus, levelSong)) return;
   const notes = [196, 247, 294, 330, 392, 330, 294, 247];
   let i = 0;
   const tick = () => {
@@ -127,7 +148,9 @@ export function startMusic() {
 }
 
 export function stopMusic() {
+  musicRunning = false;
   musicHook?.stop();
+  stopLevelSong();
   if (musicTimer != null) {
     clearTimeout(musicTimer);
     musicTimer = null;
@@ -135,6 +158,7 @@ export function stopMusic() {
 }
 
 if (typeof window !== "undefined") {
+  (window as unknown as { __ssiAudio?: unknown }).__ssiAudio = { levelSong: () => levelSongPlaying(), wanted: () => levelSong };
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") void ctx?.resume();
   });

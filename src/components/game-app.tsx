@@ -12,7 +12,7 @@ import {
   VolumeX,
 } from "lucide-react";
 import { onGame } from "@/game/bus";
-import { unlockAudio, startMusic, stopMusic, sfx, setSfxVolume, setMusicVolume } from "@/game/audio";
+import { unlockAudio, startMusic, stopMusic, sfx, setSfxVolume, setMusicVolume, setLevelSong } from "@/game/audio";
 import { COMBOS, ENDINGS, HEROES, LORE, MINIGAMES, PROMO_CODES, type HeroId, type Rank } from "@/game/data/world";
 import { ADMIN_LEVEL_ID, CREDITS, adminWarlordsUnlocked, candyCubeUnlocked } from "@/game/hayden/content";
 import { LEVELS } from "@/game/data/levels";
@@ -52,7 +52,10 @@ export function GameApp() {
   }, [setToast]);
 
   useEffect(() => {
-    if (screen === "title" || screen === "select") setMusicArea("menu");
+    if (screen === "title" || screen === "select") {
+      setMusicArea("menu");
+      setLevelSong(null);
+    }
   }, [screen]);
   const mountGen = useRef(0);
 
