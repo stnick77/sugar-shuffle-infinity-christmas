@@ -22,13 +22,19 @@ In the game, `src/game/bosses/rig.ts` adds a dark aura, floating cursed bits and
 
 ## Hayden's drawings (November 2026)
 
-`make-hayden-sprites.py` builds Candy Cube sheets, Admin Warlord portraits, the
-Admin orb projectile, the credits Cuboe + Cubro drawing, and the small
-code-drawn elf hat / candle icons from the cutouts in `assets/hayden/cutouts/`.
+`make-hayden-sprites.py` builds Admin Warlord portraits, the Admin orb
+projectile, the credits Cuboe + Cubro drawing, and the small code-drawn
+candle icon from the cutouts in `assets/hayden/cutouts/`. It then runs
+`make-candy-cube.py`.
 
-The character, boss, orb, and credits art is Hayden's. Candy Cube animation
-frames are affine transforms of his standing pose only. The elf hat and candle
-icon are simple geometric PNGs drawn in that script (same convention as the
-doors above), not AI and not third-party art.
+`make-candy-cube.py` draws Candy Cube's in-game idle/run/jump/attack
+sheets and portrait, plus the elf-hat costume, in the same painted style
+as the Cuboe and Cubro sprites (rounded cube, chunky dark outline, soft
+shading, short capsule limbs, feet on y=118) while keeping Hayden's
+design (red/white stripes, yellow swirl eyes, smile, cuffs, striped
+legs, red/white shoes). No AI, no third-party art, and no photo cutout
+in the playable sheets — the photographed drawing stays in
+`assets/hayden/cutouts/` as reference.
 
 Rebuild: `python3 scripts/art/make-hayden-sprites.py`
+(or just the character: `python3 scripts/art/make-candy-cube.py`)

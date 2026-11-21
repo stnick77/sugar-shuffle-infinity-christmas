@@ -31,7 +31,7 @@ const FIT: Record<HeroKey, Record<string, { frame: number; dx: number; dy: numbe
     "xmas-skateboard": { frame: 1, dx: 1, dy: 23, w: 32, depth: 7 },
   },
   "candy-cube": {
-    "elf-costume": { frame: 0, dx: 2, dy: -26, w: 42, depth: 7, sheet: "hayden" },
+    "elf-costume": { frame: 0, dx: 2, dy: -24, w: 42, depth: 7, sheet: "hayden" },
   },
 };
 
