@@ -2,8 +2,9 @@
  * UI for Sugar Shuffle Infinity + DLC: 'Tis the Seasones.
  * Everything renders nothing (or just the DLC button) while the DLC is off.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Music, Snowflake, Users } from "lucide-react";
+import { useMenuNav } from "./use-menu-nav";
 import { useGame } from "@/store/game-store";
 import { sfx, unlockAudio } from "@/game/audio";
 import { HEROES, type HeroId } from "@/game/data/world";
@@ -197,6 +198,8 @@ export function CollectableTally() {
 export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; onHome: () => void; inGame: boolean }) {
   const x = useGame((s) => s.save.dlc.xmas);
   const [, force] = useState(0);
+  const nav = useRef<HTMLDivElement>(null);
+  useMenuNav(nav);
   useEffect(() => {
     void loadLicensedManifest().then(() => force((n) => n + 1));
   }, []);
@@ -221,7 +224,7 @@ export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; 
     </button>
   );
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto bg-ink px-4 py-16" data-testid="xmas-options">
+    <div ref={nav} className="absolute inset-0 z-30 overflow-y-auto bg-ink px-4 py-16" data-testid="xmas-options">
       <div className="mx-auto flex w-full max-w-lg flex-col gap-3">
         <h2 className="font-display text-4xl">Options</h2>
         <p className="text-sm text-cream-dim">DLC: {DLC_TITLE}</p>

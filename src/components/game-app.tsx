@@ -20,6 +20,7 @@ import { resetSave } from "@/game/save";
 import { HMR_EVENT, ssi } from "@/game/runtime";
 import { useGame, type Screen } from "@/store/game-store";
 import { TouchPad } from "./touch-pad";
+import { useMenuNav } from "./use-menu-nav";
 import { XmasButton, XmasCloset, XmasOptions, XmasTitleExtras, useXmasOn } from "./xmas-dlc";
 import { checkDecemberGift, xmasOn } from "@/game/dlc/state";
 import { installXmasMusic, setMusicArea } from "@/game/dlc/xmasMusic";
@@ -738,8 +739,10 @@ function CreditsScreen({ onTitle }: { onTitle: () => void }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onTitle]);
+  const nav = useRef<HTMLDivElement>(null);
+  useMenuNav(nav, { activate: false });
   return (
-    <div className="absolute inset-0 z-40 overflow-y-auto bg-ink px-5 py-8">
+    <div ref={nav} className="absolute inset-0 z-40 overflow-y-auto bg-ink px-5 py-8">
       <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-4 text-center">
         <p className="text-xs font-extrabold uppercase tracking-[0.28em] text-candy">{CREDITS.title}</p>
         <ul className="w-full space-y-2 text-left">
@@ -1056,8 +1059,10 @@ function SettingsRow() {
 }
 
 function Modal({ title, children }: { title: string; children: ReactNode }) {
+  const nav = useRef<HTMLDivElement>(null);
+  useMenuNav(nav);
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center bg-ink/70 px-4 backdrop-blur-[2px]">
+    <div ref={nav} className="absolute inset-0 z-30 flex items-center justify-center bg-ink/70 px-4 backdrop-blur-[2px]">
       <div className="flex w-full max-w-md flex-col items-center gap-3 rounded-[32px] border border-cream/12 bg-surface p-6 text-center">
         <h2 className="font-display text-3xl">{title}</h2>
         {children}
@@ -1067,8 +1072,11 @@ function Modal({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function Sheet({ title, children }: { title: string; children: ReactNode }) {
+  // Keyboard / gamepad Up-Down through every button, scrolling the sheet (the game blocks native arrow scrolling).
+  const nav = useRef<HTMLDivElement>(null);
+  useMenuNav(nav);
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto bg-ink px-4 py-16">
+    <div ref={nav} className="absolute inset-0 z-30 overflow-y-auto bg-ink px-4 py-16">
       <div className="mx-auto flex w-full max-w-lg flex-col gap-3">
         <h2 className="font-display text-4xl">{title}</h2>
         {children}
