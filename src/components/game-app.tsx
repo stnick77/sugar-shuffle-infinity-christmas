@@ -332,6 +332,9 @@ export function GameApp() {
           >
             Jumpscares: {save.settings.jumpscares === false ? "Off" : "On"}
           </Btn>
+          <Btn tone="ghost" onClick={() => persist({ settings: { ...save.settings, glitch: save.settings.glitch === false } })}>
+            Character glitch: {save.settings.glitch === false ? "Off" : "On"}
+          </Btn>
           {dlcOn && (
             <Btn onClick={() => openMenu("options", "pause")} tone="ghost">
               Options

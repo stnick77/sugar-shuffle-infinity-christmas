@@ -106,6 +106,11 @@ export const sfx = {
     beep(120.6, 2.4, "triangle", 0.03, -1);
     beep(181, 1.6, "sine", 0.015, 3);
   },
+  // the hero glitching on Floor 470539758: a tiny digital blip
+  glitch: () => {
+    beep(1800 + Math.random() * 900, 0.05, "square", 0.025, -1200);
+    setTimeout(() => beep(300 + Math.random() * 200, 0.04, "square", 0.02, 400), 45);
+  },
   // escape-chase jumpscare: a short screech (volume-capped well under the boss roar peak)
   screech: () => {
     beep(900, 0.7, "sawtooth", 0.07, 900);

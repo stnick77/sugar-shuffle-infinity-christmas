@@ -256,3 +256,33 @@ export function escapeRewards<R extends string>(
     ...leaveBackrooms(),
   };
 }
+
+/* ---------- the character glitch (Backrooms only) ---------- */
+
+/**
+ * How glitched the hero is, from lost health: 0 at full health, mild at mid, 1 at the last HP.
+ */
+export function glitchLevel(hp: number, maxHp: number) {
+  if (maxHp <= 1) return hp >= maxHp ? 0 : 1;
+  const lost = Math.min(1, Math.max(0, (maxHp - hp) / (maxHp - 1)));
+  return Math.round(lost * 100) / 100;
+}
+
+/** Ambient glitches per second (none until half health; capped at 2.5/s, well under 3 Hz). */
+export function glitchAmbientRate(level: number) {
+  if (level < 0.4) return 0;
+  return Math.min(2.5, 0.3 + (level - 0.4) * 3.6);
+}
+
+/** A hit's glitch: how long (ms) and how far the ghost copies split (px). Stronger when hurt more. */
+export function glitchBurst(level: number) {
+  return { ms: Math.round(220 + 260 * level), split: Math.round(3 + 9 * level), slices: level < 0.5 ? 2 : 4 };
+}
+
+/** At the very last HP a faint split never goes away. */
+export function glitchConstant(level: number) {
+  return level >= 0.99;
+}
+
+/** The fastest the hero may blink while glitching (ms between flicker toggles, i.e. <= 3 Hz). */
+export const GLITCH_FLICKER_MS = 170;

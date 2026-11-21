@@ -219,6 +219,30 @@ function JumpscareToggle() {
   );
 }
 
+/** Options: the hero's damage glitch on Floor 470539758 (reduce motion). Default on. */
+function GlitchToggle() {
+  const settings = useGame((s) => s.save.settings);
+  const persist = useGame((s) => s.persist);
+  const on = settings.glitch !== false;
+  return (
+    <section className="flex items-center justify-between gap-3 rounded-2xl border border-cream/10 p-3">
+      <div>
+        <p className="font-display text-xl">Character glitch</p>
+        <p className="text-xs text-cream-dim">Your hero glitches when hurt in the Backrooms. Off = reduce motion.</p>
+      </div>
+      <XBtn
+        tone={on ? "solid" : "ghost"}
+        onClick={() => {
+          sfx.ui();
+          persist({ settings: { ...settings, glitch: !on } });
+        }}
+      >
+        {on ? "On" : "Off"}
+      </XBtn>
+    </section>
+  );
+}
+
 export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; onHome: () => void; inGame: boolean }) {
   const x = useGame((s) => s.save.dlc.xmas);
   const [, force] = useState(0);
@@ -294,6 +318,7 @@ export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; 
         </section>
 
         <JumpscareToggle />
+        <GlitchToggle />
 
         <section className="flex items-center justify-between gap-3 rounded-2xl border border-cream/10 p-3">
           <div>

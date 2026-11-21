@@ -21,7 +21,7 @@ export interface SaveData {
   minigames: Record<string, Rank>;
   /** One-time grants already collected (hub Candy Bux spots, treasures). */
   claimed: string[];
-  settings: { sfx: number; music: number; shake: boolean; jumpscares: boolean };
+  settings: { sfx: number; music: number; shake: boolean; jumpscares: boolean; glitch: boolean };
   /** 'Tis the Seasones DLC. Inert unless dlc.xmas.enabled. */
   dlc: { xmas: XmasSave };
 }
@@ -44,7 +44,7 @@ const DEFAULTS: SaveData = {
   saiyanKills: 0,
   minigames: {},
   claimed: [],
-  settings: { sfx: 0.8, music: 0.45, shake: true, jumpscares: true },
+  settings: { sfx: 0.8, music: 0.45, shake: true, jumpscares: true, glitch: true },
   dlc: { xmas: XMAS_DEFAULTS },
 };
 

@@ -28,6 +28,11 @@ import {
   CHASE,
   CHASE_WORDS,
   CHASE_CHECKPOINTS,
+  GLITCH_FLICKER_MS,
+  glitchAmbientRate,
+  glitchBurst,
+  glitchConstant,
+  glitchLevel,
   chaseCheckpoint,
   TRAPPED_ENDING,
   caught,
@@ -39,12 +44,10 @@ import {
   BACKROOMS_NAME,
   ENEMY_CHARS,
   ENEMY_INFO,
-  RETURN_FLOOR,
   discovered,
   enterBackrooms,
   floorDef,
   isBackroomsRoom,
-  leaveBackrooms,
   shouldNoclip,
   redHubLevel,
   redHubWatchers,
@@ -182,6 +185,13 @@ export class PlayScene extends Phaser.Scene {
   private scaring = false;
   private catches = 0;
   private chaseBest = 0;
+  // the hero's damage glitch (Floor 470539758 only)
+  private glitchFx: { ghosts: Phaser.GameObjects.Sprite[]; slices: Phaser.GameObjects.Sprite[] } | null = null;
+  private glitchUntil = 0;
+  private glitchSplit = 0;
+  private glitchSlices = 0;
+  private glitchFlickAt = 0;
+  private glitchNextAmbient = 0;
 
   constructor() {
     super("play");
@@ -210,6 +220,9 @@ export class PlayScene extends Phaser.Scene {
     this.scaring = false;
     this.catches = 0;
     this.chaseBest = 0;
+    this.glitchFx = null;
+    this.glitchUntil = 0;
+    this.glitchNextAmbient = 0;
     if (id === "hub") id = hubIdFor(floor);
     this.levelId = id;
     this.mobs = [];
@@ -287,8 +300,7 @@ export class PlayScene extends Phaser.Scene {
         const door = themeFor(id)?.door;
         if (door) s(door, `/game/sprites/doors/${door}.png`);
       }
-      // the Backrooms: EXIT door (in its hub) and the "Floor 470539758" tear (in the Floor 5 hub)
-      s("door-br-exit", "/game/sprites/doors/door-br-exit.png");
+      // the "Floor 470539758" tear (in the Floor 5 hub, once found)
       s("door-br-noclip", "/game/sprites/doors/door-br-noclip.png");
     }
     for (const kind of BACKROOMS_ENEMIES[room.id] ?? []) sheet(kind, `/game/sprites/${kind}.png`);
@@ -627,6 +639,7 @@ export class PlayScene extends Phaser.Scene {
   private tickRoomFx(dt: number) {
     const now = this.time.now;
     this.tickChase(dt);
+    this.tickGlitch(now);
     // moving platforms: velocity-driven so riders are carried along
     for (const mv of this.movers) {
       const t = (now % mv.period) / mv.period;
@@ -869,11 +882,95 @@ export class PlayScene extends Phaser.Scene {
   }
 
   /** Backrooms hub EXIT: back up to Floor 5. */
-  private leaveBackroomsDoor() {
-    this.frozen = true;
-    useGame.getState().persist(leaveBackrooms());
-    this.cameras.main.fadeOut(300, 20, 12, 8);
-    this.time.delayedCall(320, () => this.scene.restart({ levelId: hubIdFor(RETURN_FLOOR) }));
+  /* ---------------- the hero's damage glitch (Backrooms only) ---------------- */
+
+  private glitchOn() {
+    return isBackroomsRoom(this.levelId) && useGame.getState().save.settings.glitch !== false && !!this.player;
+  }
+
+  /** Ghost copies (red / cyan split, a jitter copy) and slice strips of the hero; never touch the body. */
+  private ensureGlitchFx() {
+    if (this.glitchFx) return this.glitchFx;
+    const mk = (tint?: number) => {
+      const g = this.add.sprite(0, 0, this.player.texture.key, 0).setVisible(false).setDepth(this.player.depth + 0.01);
+      if (tint !== undefined) g.setTint(tint).setBlendMode(Phaser.BlendModes.ADD);
+      return g;
+    };
+    this.glitchFx = { ghosts: [mk(0xff2040), mk(0x30e0ff), mk()], slices: [mk(), mk(), mk(), mk()] };
+    return this.glitchFx;
+  }
+
+  private glitchHit() {
+    if (!this.glitchOn()) return;
+    const lvl = glitchLevel(Math.max(0, this.hp), this.maxHp);
+    const b = glitchBurst(Math.max(0.3, lvl));
+    this.glitchUntil = this.time.now + b.ms;
+    this.glitchSplit = b.split;
+    this.glitchSlices = b.slices;
+    sfx.glitch();
+  }
+
+  private tickGlitch(now: number) {
+    if (!this.glitchOn()) {
+      if (this.glitchFx) this.hideGlitch();
+      return;
+    }
+    const lvl = glitchLevel(Math.max(0, this.hp), this.maxHp);
+    // ambient glitches at low health (rate capped well under 3 per second)
+    const rate = glitchAmbientRate(lvl);
+    if (rate > 0 && now >= this.glitchNextAmbient) {
+      if (this.glitchNextAmbient > 0 && now > this.glitchUntil) {
+        const b = glitchBurst(lvl);
+        this.glitchUntil = now + Math.min(160, b.ms * 0.5);
+        this.glitchSplit = Math.max(2, Math.round(b.split * 0.6));
+        this.glitchSlices = Math.max(1, b.slices - 2);
+        if (Math.random() < 0.5) sfx.glitch();
+      }
+      this.glitchNextAmbient = now + (1000 / rate) * (0.6 + Math.random() * 0.8);
+    }
+    const burst = now < this.glitchUntil;
+    const constant = glitchConstant(lvl);
+    if (!burst && !constant) {
+      if (this.glitchFx) this.hideGlitch();
+      return;
+    }
+    const fx = this.ensureGlitchFx();
+    const p = this.player;
+    const sync = (g: Phaser.GameObjects.Sprite) => {
+      if (g.texture.key !== p.texture.key || g.frame.name !== p.frame.name) g.setTexture(p.texture.key, p.frame.name);
+      g.setOrigin(p.originX, p.originY).setScale(p.scaleX, p.scaleY).setFlipX(p.flipX).setAngle(p.angle).setDepth(p.depth + 0.01);
+      return g;
+    };
+    const split = burst ? this.glitchSplit : 1.5;
+    const [red, cyan, jit] = fx.ghosts as [Phaser.GameObjects.Sprite, Phaser.GameObjects.Sprite, Phaser.GameObjects.Sprite];
+    sync(red).setPosition(p.x - split, p.y).setAlpha(burst ? 0.55 : 0.22).setVisible(true);
+    sync(cyan).setPosition(p.x + split, p.y).setAlpha(burst ? 0.55 : 0.22).setVisible(true);
+    // flicker no faster than ~3 Hz: the hero dims and a jittered copy stands in for a frame
+    const flick = burst && now - this.glitchFlickAt >= GLITCH_FLICKER_MS;
+    if (flick) this.glitchFlickAt = now;
+    const jitterOn = burst && now - this.glitchFlickAt < 50;
+    p.setAlpha(jitterOn ? 0.35 : 1);
+    sync(jit).setPosition(p.x + (Math.random() - 0.5) * split * 2, p.y + (Math.random() - 0.5) * 4).setAlpha(1).setVisible(jitterOn);
+    // horizontal slice displacement of the sprite
+    const fw = p.frame.width;
+    const fh = p.frame.height;
+    fx.slices.forEach((sl, i) => {
+      if (!burst || i >= this.glitchSlices) {
+        sl.setVisible(false);
+        return;
+      }
+      sync(sl);
+      const band = fh / 6;
+      const y0 = ((i * 2 + (Math.floor(now / 90) % 3)) % 6) * band;
+      sl.setCrop(0, y0, fw, band * 0.8);
+      sl.setPosition(p.x + (Math.random() < 0.5 ? -1 : 1) * (split * 0.8 + Math.random() * split), p.y).setVisible(true);
+    });
+  }
+
+  private hideGlitch() {
+    if (!this.glitchFx) return;
+    for (const g of [...this.glitchFx.ghosts, ...this.glitchFx.slices]) g.setVisible(false);
+    this.player?.setAlpha(1);
   }
 
   /* ---------------- the escape chase ---------------- */
@@ -1237,10 +1334,7 @@ export class PlayScene extends Phaser.Scene {
       else if (ch === "w") this.water(tx, ty);
       else if (ch === "v") this.addStalactite(tx, ty);
       else if (ENEMY_CHARS[ch]) this.spawnMob(x, y, ENEMY_CHARS[ch]!);
-      else if (ch === "O") {
-        this.interactives.push({ kind: "brexit", id: "brexit", x, y });
-        this.drawDoor(x, y, `FLOOR ${RETURN_FLOOR}`, "room", undefined, "door-br-exit");
-      } else if (ch === "N") {
+      else if (ch === "N") {
         // the way back down, once you have found it
         if (discovered(useGame.getState().save)) {
           this.interactives.push({ kind: "tear", id: BACKROOMS_HUB, x, y });
@@ -2706,6 +2800,7 @@ export class PlayScene extends Phaser.Scene {
     this.trauma = Math.min(1, this.trauma + 0.5);
     this.cameras.main.flash(80, 180, 40, 40);
     sfx.hurt();
+    this.glitchHit();
     if (this.hp <= 0) {
       this.lives -= 1;
       if (this.lives <= 0) {
@@ -2838,7 +2933,6 @@ export class PlayScene extends Phaser.Scene {
       rift: "Strange rift  ·  Up",
       metroid: "Metroid platform  ·  Attack",
       tv: "It's Me  ·  Up",
-      brexit: `Back to Floor ${RETURN_FLOOR}  ·  Up`,
       tear: `${BACKROOMS_NAME}  ·  Up`,
       escape: "ESCAPE  ·  Up",
     };
@@ -2869,7 +2963,6 @@ export class PlayScene extends Phaser.Scene {
     }
     if (nearest.kind === "boss") this.tryBoss();
     if (nearest.kind === "elevator") this.tryElevator();
-    if (nearest.kind === "brexit") this.leaveBackroomsDoor();
     if (nearest.kind === "tear") this.enterBackroomsDoor();
     if (nearest.kind === "escape") this.escapeDoor();
   }
@@ -3189,6 +3282,7 @@ export class PlayScene extends Phaser.Scene {
           chaser: this.chaser ? { x: this.chaser.x, wait: this.chaseWait } : null,
           catches: this.catches,
           scaring: this.scaring,
+          glitch: { level: glitchLevel(Math.max(0, this.hp), this.maxHp), on: this.glitchOn(), burst: this.time.now < this.glitchUntil, shown: !!this.glitchFx?.ghosts[0]?.visible },
           swimming: this.inWater(this.player),
     };
   }
