@@ -7,7 +7,8 @@ import { Music, Snowflake, Users } from "lucide-react";
 import { useMenuNav } from "./use-menu-nav";
 import { useGame } from "@/store/game-store";
 import { sfx, unlockAudio } from "@/game/audio";
-import { HEROES, type HeroId } from "@/game/data/world";
+import { HEROES } from "@/game/data/world";
+import type { HeroKey } from "@/game/dlc/logic";
 import {
   COLLECTABLES,
   DLC_TITLE,
@@ -125,7 +126,7 @@ export function XmasTitleExtras() {
   );
 }
 
-function CosmeticRow({ c, hero }: { c: Cosmetic; hero: HeroId }) {
+function CosmeticRow({ c, hero }: { c: Cosmetic; hero: HeroKey }) {
   const x = useGame((s) => s.save.dlc.xmas);
   const owned = isOwned(x, c.id);
   const worn = isEquipped(x, hero, c.id);
@@ -159,7 +160,7 @@ export function XmasCloset() {
     <div className="mt-4 flex flex-col gap-3" data-testid="xmas-closet">
       <h3 className="font-display text-2xl">Christmas closet</h3>
       <p className="text-sm text-cream-dim">{DLC_TITLE} cosmetics. Equip them here, they show up as soon as you close the station.</p>
-      {(["cuboe", "cubro", "candy-cube"] as HeroId[]).map((hero) => (
+      {(["cuboe", "cubro", "candy-cube"] as HeroKey[]).map((hero) => (
         <div key={hero}>
           <p className="mb-2 text-xs font-extrabold uppercase tracking-widest text-candy">{HEROES[hero].name}</p>
           <ul className="flex flex-col gap-2">

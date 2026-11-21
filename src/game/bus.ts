@@ -20,7 +20,7 @@ export type GameEvent =
   | { t: "toast"; text: string }
   | { t: "pause" }
   | { t: "resume" }
-  | { t: "rank"; levelId: string; rank: string; score: number }
+  | { t: "rank"; levelId: string; rank: string; score: number; unlocked?: string[] }
   | { t: "over"; ending?: string }
   | { t: "win"; ending: string }
   | { t: "hub" }

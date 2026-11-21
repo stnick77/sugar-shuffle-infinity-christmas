@@ -1,4 +1,4 @@
-export type HeroId = "cuboe" | "cubro" | "candy-cube";
+export type HeroId = "cuboe" | "cubro" | "candy-cube" | "hazmat-cube" | "entity-cube";
 export type Rank = "P" | "S" | "A" | "B" | "C" | "D" | "F";
 
 export const HEROES: Record<
@@ -13,6 +13,10 @@ export const HEROES: Record<
     speed?: number;
     /** Only offered on the character select screen when the Christmas DLC is on. */
     dlc?: boolean;
+    /** Earned by escaping Floor 470539758 (beat Bacteria, then the heaven ESCAPE door). Shown locked until then. */
+    reward?: "backrooms";
+    /** Shown under the locked silhouette on the character select. */
+    lockedHint?: string;
     control: string;
     blurb: string;
     color: string;
@@ -48,6 +52,31 @@ export const HEROES: Record<
     blurb: "Hayden's Christmas cube: red and white stripes, swirl eyes, and a harder fight. HP 6, 9 lives, a little slower than Cuboe.",
     color: "#e11d2e",
     portrait: "/game/sprites/candy-cube-portrait.png",
+  },
+  "hazmat-cube": {
+    name: "Hazmat Cube",
+    tag: "Easy",
+    lives: 6,
+    hp: 7,
+    speed: 1.05,
+    reward: "backrooms",
+    lockedHint: "Escape the Backrooms",
+    control: "Punch, shield, air stall",
+    blurb: "A very nervous cube in a yellow chemical suit. Scared, so it runs a little faster, and the suit soaks up an extra hit. HP 7, 6 lives.",
+    color: "#f6cc28",
+    portrait: "/game/sprites/hazmat-cube-portrait.png",
+  },
+  "entity-cube": {
+    name: "Entity Cube",
+    tag: "Mild",
+    lives: 7,
+    hp: 6,
+    reward: "backrooms",
+    lockedHint: "Escape the Backrooms",
+    control: "Punch, shield, air stall",
+    blurb: "Something followed you out of the Backrooms. A black cube with wavy tentacles and a glowing purple smile that never stops glitching. HP 6, 7 lives.",
+    color: "#2a1f38",
+    portrait: "/game/sprites/entity-cube-portrait.png",
   },
 };
 
@@ -219,6 +248,20 @@ export const COMBOS = {
     { id: "beams", name: "Two-Side Energy Beam", input: "Up + J (30 meter)", desc: "Fires beams both ways." },
   ],
   "candy-cube": [
+    { id: "aeraste", name: "Aeraste", input: "Jump on an enemy", desc: "Stomp to bounce-kill." },
+    { id: "laser", name: "Spinning Laser", input: "J in the air (35 meter)", desc: "Lasers spin in all directions." },
+    { id: "shield", name: "Forward Shield", input: "Q (20 meter)", desc: "Protective shield for 5 seconds." },
+    { id: "blackhole", name: "Black Hole", input: "Up + Q (40 meter)", desc: "Pulls enemies in." },
+    { id: "beams", name: "Two-Side Energy Beam", input: "Up + J (30 meter)", desc: "Fires beams both ways." },
+  ],
+  "hazmat-cube": [
+    { id: "aeraste", name: "Aeraste", input: "Jump on an enemy", desc: "Stomp to bounce-kill." },
+    { id: "laser", name: "Spinning Laser", input: "J in the air (35 meter)", desc: "Lasers spin in all directions." },
+    { id: "shield", name: "Forward Shield", input: "Q (20 meter)", desc: "Protective shield for 5 seconds." },
+    { id: "blackhole", name: "Black Hole", input: "Up + Q (40 meter)", desc: "Pulls enemies in." },
+    { id: "beams", name: "Two-Side Energy Beam", input: "Up + J (30 meter)", desc: "Fires beams both ways." },
+  ],
+  "entity-cube": [
     { id: "aeraste", name: "Aeraste", input: "Jump on an enemy", desc: "Stomp to bounce-kill." },
     { id: "laser", name: "Spinning Laser", input: "J in the air (35 meter)", desc: "Lasers spin in all directions." },
     { id: "shield", name: "Forward Shield", input: "Q (20 meter)", desc: "Protective shield for 5 seconds." },

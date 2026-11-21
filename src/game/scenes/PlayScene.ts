@@ -1,3 +1,4 @@
+import { ENTITY_GLITCH, unlockRewardHeroes } from "@/game/backrooms/heroes";
 import * as Phaser from "phaser";
 import { TILE } from "../config";
 import { ARCADE_OVERLAP_BIAS, MAX_FALL_SPEED, canEnterDoor, capFallSpeed, landingFloorTop, shouldLandOnFloor, type Aabb } from "../physics/floors";
@@ -192,6 +193,7 @@ export class PlayScene extends Phaser.Scene {
   private glitchSlices = 0;
   private glitchFlickAt = 0;
   private glitchNextAmbient = 0;
+  private entityGlitchAt = 0;
 
   constructor() {
     super("play");
@@ -223,6 +225,7 @@ export class PlayScene extends Phaser.Scene {
     this.glitchFx = null;
     this.glitchUntil = 0;
     this.glitchNextAmbient = 0;
+    this.entityGlitchAt = 0;
     if (id === "hub") id = hubIdFor(floor);
     this.levelId = id;
     this.mobs = [];
@@ -270,7 +273,7 @@ export class PlayScene extends Phaser.Scene {
     s(bgKeyFor(room.bg), room.bg);
     s("ground-candy", "/game/sprites/ground-candy.png");
     s("ground-marsh", "/game/sprites/ground-marsh.png");
-    for (const h of ["cuboe", "cubro", "candy-cube"] as const) {
+    for (const h of ["cuboe", "cubro", "candy-cube", "hazmat-cube", "entity-cube"] as const) {
       for (const a of ["idle", "run", "jump", "attack"] as const) sheet(`${h}-${a}`, `/game/sprites/${h}-${a}.png`);
     }
     sheet("boxguy", "/game/sprites/boxguy.png");
@@ -885,7 +888,7 @@ export class PlayScene extends Phaser.Scene {
   /* ---------------- the hero's damage glitch (Backrooms only) ---------------- */
 
   private glitchOn() {
-    return isBackroomsRoom(this.levelId) && useGame.getState().save.settings.glitch !== false && !!this.player;
+    return (isBackroomsRoom(this.levelId) || this.hero === "entity-cube") && useGame.getState().save.settings.glitch !== false && !!this.player;
   }
 
   /** Ghost copies (red / cyan split, a jitter copy) and slice strips of the hero; never touch the body. */
@@ -915,7 +918,17 @@ export class PlayScene extends Phaser.Scene {
       if (this.glitchFx) this.hideGlitch();
       return;
     }
-    const lvl = glitchLevel(Math.max(0, this.hp), this.maxHp);
+    // damage glitch only on Floor 470539758; Entity Cube's own mild glitch everywhere
+    const lvl = isBackroomsRoom(this.levelId) ? glitchLevel(Math.max(0, this.hp), this.maxHp) : 0;
+    const entity = this.hero === "entity-cube";
+    if (entity && now >= this.entityGlitchAt) {
+      if (this.entityGlitchAt > 0 && now > this.glitchUntil) {
+        this.glitchUntil = now + ENTITY_GLITCH.burstMs;
+        this.glitchSplit = ENTITY_GLITCH.burstSplit;
+        this.glitchSlices = ENTITY_GLITCH.burstSlices;
+      }
+      this.entityGlitchAt = now + (1000 / ENTITY_GLITCH.burstsPerSec) * (0.6 + Math.random() * 0.8);
+    }
     // ambient glitches at low health (rate capped well under 3 per second)
     const rate = glitchAmbientRate(lvl);
     if (rate > 0 && now >= this.glitchNextAmbient) {
@@ -929,7 +942,7 @@ export class PlayScene extends Phaser.Scene {
       this.glitchNextAmbient = now + (1000 / rate) * (0.6 + Math.random() * 0.8);
     }
     const burst = now < this.glitchUntil;
-    const constant = glitchConstant(lvl);
+    const constant = glitchConstant(lvl) || entity;
     if (!burst && !constant) {
       if (this.glitchFx) this.hideGlitch();
       return;
@@ -941,10 +954,11 @@ export class PlayScene extends Phaser.Scene {
       g.setOrigin(p.originX, p.originY).setScale(p.scaleX, p.scaleY).setFlipX(p.flipX).setAngle(p.angle).setDepth(p.depth + 0.01);
       return g;
     };
-    const split = burst ? this.glitchSplit : 1.5;
+    const split = burst ? this.glitchSplit : ENTITY_GLITCH.split;
+    const calm = entity && !glitchConstant(lvl) ? ENTITY_GLITCH.ghostAlpha : 0.22;
     const [red, cyan, jit] = fx.ghosts as [Phaser.GameObjects.Sprite, Phaser.GameObjects.Sprite, Phaser.GameObjects.Sprite];
-    sync(red).setPosition(p.x - split, p.y).setAlpha(burst ? 0.55 : 0.22).setVisible(true);
-    sync(cyan).setPosition(p.x + split, p.y).setAlpha(burst ? 0.55 : 0.22).setVisible(true);
+    sync(red).setPosition(p.x - split, p.y).setAlpha(burst ? 0.55 : calm).setVisible(true);
+    sync(cyan).setPosition(p.x + split, p.y).setAlpha(burst ? 0.55 : calm).setVisible(true);
     // flicker no faster than ~3 Hz: the hero dims and a jittered copy stands in for a frame
     const flick = burst && now - this.glitchFlickAt >= GLITCH_FLICKER_MS;
     if (flick) this.glitchFlickAt = now;
@@ -1193,12 +1207,13 @@ export class PlayScene extends Phaser.Scene {
     const rank = rankFromScore(4000 + Math.max(0, this.lives) * 1500, false, 0);
     const save = useGame.getState().save;
     const hadLore = save.lore.includes(BACKROOMS_LORE);
+    const { fresh } = unlockRewardHeroes(save.heroes);
     useGame.getState().persist(escapeRewards(save, rank));
     if (!hadLore) this.pop(this.player.x, this.player.y - 40, "SECRET LORE");
     sfx.win();
     this.cameras.main.flash(500, 255, 255, 255);
     this.tweens.add({ targets: this.player, alpha: 0, duration: 500 });
-    this.time.delayedCall(550, () => emitGame({ t: "rank", levelId: BACKROOMS_ESCAPE, rank, score: 4000 + Math.max(0, this.lives) * 1500 }));
+    this.time.delayedCall(550, () => emitGame({ t: "rank", levelId: BACKROOMS_ESCAPE, rank, score: 4000 + Math.max(0, this.lives) * 1500, ...(fresh.length ? { unlocked: fresh } : {}) }));
   }
 
   private bgKey() {
@@ -1215,7 +1230,7 @@ export class PlayScene extends Phaser.Scene {
         repeat: rep,
       });
     };
-    for (const h of ["cuboe", "cubro", "candy-cube"] as const) {
+    for (const h of ["cuboe", "cubro", "candy-cube", "hazmat-cube", "entity-cube"] as const) {
       mk(`${h}-idle`, `${h}-idle`, 7, -1);
       mk(`${h}-run`, `${h}-run`, 12, -1);
       mk(`${h}-jump`, `${h}-jump`, 8, 0);
@@ -1542,7 +1557,10 @@ export class PlayScene extends Phaser.Scene {
     this.rigs = [];
     if (!this.player) return;
     if (!this.textures.exists(XMAS_PK)) return;
-    const add = (hero: HeroId, spr: () => Phaser.GameObjects.Sprite | null, facing: () => number) => {
+    const add = (who: HeroId, spr: () => Phaser.GameObjects.Sprite | null, facing: () => number) => {
+      // the Backrooms reward heroes have no Christmas cosmetics
+      if (who === "hazmat-cube" || who === "entity-cube") return;
+      const hero = who;
       const ids = activeCosmetics(xmas(), hero);
       const target = spr();
       if (!ids.length || !target) return;

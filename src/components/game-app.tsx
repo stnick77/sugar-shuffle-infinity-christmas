@@ -18,6 +18,7 @@ import { ADMIN_LEVEL_ID, CREDITS, adminWarlordsUnlocked, candyCubeUnlocked } fro
 import { LEVELS } from "@/game/data/levels";
 import { BACKROOMS_ESCAPE, BACKROOMS_NAME, TRAPPED_ENDING, TRAPPED_NAME, escapeChoices, isBackroomsRoom } from "@/game/backrooms/backrooms";
 import { resetSave } from "@/game/save";
+import { BACKROOMS_HERO_HINT, heroUnlocked } from "@/game/backrooms/heroes";
 import { HMR_EVENT, ssi } from "@/game/runtime";
 import { useGame, type Screen } from "@/store/game-store";
 import { TouchPad } from "./touch-pad";
@@ -128,7 +129,7 @@ export function GameApp() {
         });
       } else if (e.t === "pause") setScreen("pause");
       else if (e.t === "rank") {
-        useGame.setState({ lastRank: { levelId: e.levelId, rank: e.rank as Rank, score: e.score } });
+        useGame.setState({ lastRank: { levelId: e.levelId, rank: e.rank as Rank, score: e.score, unlocked: e.unlocked as HeroId[] | undefined } });
         setScreen("rank");
       } else if (e.t === "over") setScreen(e.ending === TRAPPED_ENDING ? "trapped" : "over");
       else if (e.t === "win") {
@@ -345,6 +346,9 @@ export function GameApp() {
           </Btn>
         </Modal>
       )}
+      {screen === "rank" && lastRank?.unlocked?.length ? (
+        <HeroUnlockPopup ids={lastRank.unlocked} onClose={() => useGame.setState({ lastRank: { ...lastRank, unlocked: undefined } })} />
+      ) : null}
       {screen === "rank" && lastRank && (
         <Modal title={LEVELS[lastRank.levelId]?.name ?? lastRank.levelId}>
           {isBackroomsRoom(lastRank.levelId) && (
@@ -581,28 +585,47 @@ function Title({ onPlay, go, onHome, onAdmin }: { onPlay: () => void; go: (s: Sc
 
 function Select({ onPick, onBack }: { onPick: (h: HeroId) => void; onBack: () => void }) {
   const dlcOn = useXmasOn();
+  const { save } = useGame();
   const ids = (Object.keys(HEROES) as HeroId[]).filter((id) => !HEROES[id].dlc || candyCubeUnlocked(dlcOn));
   return (
-    <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-ink px-4">
+    <div className="absolute inset-0 z-40 flex flex-col items-center justify-center overflow-y-auto bg-ink px-4 py-6">
       <p className="text-xs font-extrabold uppercase tracking-[0.28em] text-candy">Choose a cube</p>
       <h2 className="mt-1 font-display text-4xl">Who walks in?</h2>
-      <div className={"mt-8 grid w-full max-w-3xl gap-4 " + (ids.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+      <div className={"mt-6 grid w-full gap-3 " + (ids.length >= 5 ? "max-w-6xl sm:grid-cols-3 lg:grid-cols-5" : ids.length === 4 ? "max-w-5xl sm:grid-cols-2 lg:grid-cols-4" : ids.length > 2 ? "max-w-3xl sm:grid-cols-3" : "max-w-3xl sm:grid-cols-2")}>
         {ids.map((id) => {
           const h = HEROES[id];
           const hp = h.hp ?? h.lives;
+          const locked = !heroUnlocked(save, id);
           return (
             <button
               key={id}
               type="button"
-              onClick={() => onPick(id)}
-              className="rounded-[28px] border border-cream/12 bg-surface p-5 text-left transition hover:border-candy/50"
+              disabled={locked}
+              data-testid={`hero-${id}`}
+              data-locked={locked ? "true" : "false"}
+              onClick={() => !locked && onPick(id)}
+              className={
+                "rounded-[28px] border p-4 text-left transition " +
+                (locked ? "cursor-not-allowed border-cream/8 bg-surface/60" : "border-cream/12 bg-surface hover:border-candy/50")
+              }
             >
-              <img src={h.portrait} alt="" className="mx-auto h-28 w-28 object-contain" />
-              <p className="mt-3 font-display text-3xl">{h.name}</p>
-              <p className="text-xs font-extrabold uppercase tracking-widest text-candy">
-                {h.tag} · HP {hp} · {h.lives} lives
-              </p>
-              <p className="mt-2 text-sm text-cream-dim">{h.blurb}</p>
+              <img
+                src={h.portrait}
+                alt=""
+                className="mx-auto h-24 w-24 object-contain"
+                style={locked ? { filter: "brightness(0) opacity(0.55)" } : undefined}
+              />
+              <p className="mt-2 font-display text-2xl">{locked ? "???" : h.name}</p>
+              {locked ? (
+                <p className="text-xs font-extrabold uppercase tracking-widest text-cream-dim">🔒 {h.lockedHint ?? BACKROOMS_HERO_HINT}</p>
+              ) : (
+                <>
+                  <p className="text-xs font-extrabold uppercase tracking-widest text-candy">
+                    {h.tag} · HP {hp} · {h.lives} lives
+                  </p>
+                  <p className="mt-2 text-sm text-cream-dim">{h.blurb}</p>
+                </>
+              )}
             </button>
           );
         })}
@@ -610,6 +633,29 @@ function Select({ onPick, onBack }: { onPick: (h: HeroId) => void; onBack: () =>
       <button type="button" className="mt-6 text-sm text-cream-dim" onClick={onBack}>
         Back
       </button>
+    </div>
+  );
+}
+
+/** Pops over the escape rank screen the first time the Backrooms heroes are earned. */
+function HeroUnlockPopup({ ids, onClose }: { ids: HeroId[]; onClose: () => void }) {
+  const nav = useRef<HTMLDivElement>(null);
+  useMenuNav(nav);
+  return (
+    <div ref={nav} data-testid="hero-unlock" className="absolute inset-0 z-50 flex items-center justify-center bg-ink/80 px-4 backdrop-blur-[3px]">
+      <div className="flex w-full max-w-lg flex-col items-center gap-3 rounded-[32px] border-2 border-candy/60 bg-surface p-6 text-center shadow-[0_0_60px_rgba(200,110,255,0.35)]">
+        <p className="text-xs font-extrabold uppercase tracking-[0.28em] text-candy">New cubes unlocked!</p>
+        <div className="flex items-end justify-center gap-6">
+          {ids.map((id) => (
+            <div key={id} className="flex flex-col items-center">
+              <img src={HEROES[id].portrait} alt="" className="h-32 w-32 object-contain" />
+              <p className="font-display text-2xl">{HEROES[id].name}</p>
+            </div>
+          ))}
+        </div>
+        <p className="text-sm text-cream-dim">You escaped the Backrooms, and they came with you. Pick them on the character select.</p>
+        <Btn onClick={onClose}>Nice!</Btn>
+      </div>
     </div>
   );
 }

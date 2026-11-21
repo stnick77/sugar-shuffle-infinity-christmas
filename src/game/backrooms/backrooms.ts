@@ -17,6 +17,7 @@
  */
 import { FLOORS } from "../data/world.ts";
 
+import { unlockRewardHeroes } from "./heroes.ts";
 export const BACKROOMS_FLOOR = 470539758;
 /** Shown everywhere the floor's name shows (hub title, HUD, door labels, rank screen). */
 export const BACKROOMS_NAME = "Floor 470539758";
@@ -244,7 +245,7 @@ export function escapeChoices(xmasOn: boolean): EscapeTarget[] {
 
 /** Save changes for walking out of the ESCAPE door: rewards, and you are back on Floor 5. */
 export function escapeRewards<R extends string>(
-  save: { lore: readonly string[]; endings: readonly string[]; completed: readonly string[]; ranks: Readonly<Record<string, R>> },
+  save: { lore: readonly string[]; endings: readonly string[]; completed: readonly string[]; ranks: Readonly<Record<string, R>>; heroes?: readonly string[] },
   rank: R,
 ) {
   const add = (list: readonly string[], v: string) => (list.includes(v) ? [...list] : [...list, v]);
@@ -253,6 +254,7 @@ export function escapeRewards<R extends string>(
     endings: add(save.endings, BACKROOMS_ENDING),
     completed: add(add(save.completed, BACKROOMS_ESCAPE), BACKROOMS_HEAVEN),
     ranks: { ...save.ranks, [BACKROOMS_ESCAPE]: rank } as Record<string, R>,
+    heroes: unlockRewardHeroes(save.heroes).heroes,
     ...leaveBackrooms(),
   };
 }

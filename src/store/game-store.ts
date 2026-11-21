@@ -1,6 +1,7 @@
 import { create } from "zustand";
 import { loadSave, writeSave, type SaveData } from "@/game/save";
 import { HEROES, type HeroId, type Rank } from "@/game/data/world";
+import { heroUnlocked } from "@/game/backrooms/heroes";
 
 export type Screen =
   | "title"
@@ -41,7 +42,7 @@ interface Store {
   save: SaveData;
   screen: Screen;
   hud: Hud;
-  lastRank: { levelId: string; rank: Rank; score: number } | null;
+  lastRank: { levelId: string; rank: Rank; score: number; unlocked?: HeroId[] } | null;
   ending: string | null;
   toast: string;
   persist: (patch: Partial<SaveData>) => void;
@@ -83,7 +84,9 @@ export const useGame = create<Store>((set, get) => ({
   setScreen: (screen) => set({ screen }),
   setHud: (h) => set({ hud: { ...get().hud, ...h } }),
   setToast: (toast) => set({ toast }),
-  pickHero: (hero) => {
+  pickHero: (want) => {
+    // a locked reward hero can't be picked (the select screen shows it as a silhouette)
+    const hero = heroUnlocked(get().save, want) ? want : "cuboe";
     const def = HEROES[hero] ?? HEROES.cuboe;
     const maxHp = def.hp ?? def.lives;
     const lives = def.lives;
