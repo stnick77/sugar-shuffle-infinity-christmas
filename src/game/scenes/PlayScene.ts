@@ -196,9 +196,11 @@ export class PlayScene extends Phaser.Scene {
     sheet("choco", "/game/sprites/choco.png");
     sheet("outlaw", "/game/sprites/outlaw.png");
     sheet("warlock", "/game/sprites/warlock.png");
-    s("warlord-1", "/game/sprites/warlord-1.png");
-    s("warlord-2", "/game/sprites/warlord-2.png");
-    s("warlord-3", "/game/sprites/warlord-3.png");
+    // Admin Warlords: one 2x2 idle sheet per phase, same 128px frame layout as the other bosses
+    // (drawn by scripts/art/make-admin-warlords.py).
+    sheet("warlord-1", "/game/sprites/warlord-1.png");
+    sheet("warlord-2", "/game/sprites/warlord-2.png");
+    sheet("warlord-3", "/game/sprites/warlord-3.png");
     s("admin-orb", "/game/sprites/admin-orb.png");
     sheet("pickups", "/game/sprites/pickups.png");
     s("door-room", "/game/sprites/door-room.png");
@@ -363,6 +365,9 @@ export class PlayScene extends Phaser.Scene {
     mk("choco-idle", "choco", 6, -1);
     mk("outlaw-idle", "outlaw", 6, -1);
     mk("warlock-idle", "warlock", 6, -1);
+    mk("warlord-1-idle", "warlord-1", 6, -1);
+    mk("warlord-2-idle", "warlord-2", 6, -1);
+    mk("warlord-3-idle", "warlord-3", 6, -1);
   }
 
   private tileSpr(tx: number, ty: number, oneWay: boolean) {
@@ -785,7 +790,8 @@ export class PlayScene extends Phaser.Scene {
     spr.setFlipX(true);
     // Fake Cubro / Fake Cuboe: cursed sheets + aura, floating cursed bits and a glitch flicker.
     const cursed = id === "f3-boss" || id === "f4-boss";
-    const rig = new BossRig(this, spr, { cursed });
+    // Admin Warlords draw at 120px like their hitbox size (other bosses: 128px frames at 0.75 = 96px).
+    const rig = new BossRig(this, spr, { cursed, scale: id === ADMIN_BOSS_ID ? 120 / 128 : undefined });
     const m: Mob = { spr, kind: "boss", dir: -1, hp: info.lives, next: this.time.now + 2000, rig };
     this.mobs.push(m);
     this.label = info.name;
@@ -1172,7 +1178,11 @@ export class PlayScene extends Phaser.Scene {
     m.spr.setData("open", false);
     m.spr.setData("move", "");
     const key = next === 2 ? "warlord-2" : "warlord-3";
-    if (this.textures.exists(key)) m.spr.setTexture(key);
+    if (this.textures.exists(key)) {
+      // Play the new warlord's own idle loop; otherwise the old idle anim keeps drawing the previous phase.
+      if (this.anims.exists(`${key}-idle`)) m.spr.play(`${key}-idle`);
+      else m.spr.setTexture(key);
+    }
     m.spr.setDisplaySize(120, 120);
     this.hazards.forEach((h) => h.destroy());
     this.hazards = [];
@@ -1303,6 +1313,7 @@ export class PlayScene extends Phaser.Scene {
           flash: !!m.spr.getData("flash"),
           open: !!m.spr.getData("open"),
           busy: !!m.spr.getData("move"),
+          warn: m.spr.getData("move") === "tell",
         });
         continue;
       }

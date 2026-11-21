@@ -81,7 +81,7 @@ export class BossRig {
   }
 
   /** Called every frame from the scene. */
-  sync(now: number, s: { flash: boolean; open: boolean; busy: boolean }) {
+  sync(now: number, s: { flash: boolean; open: boolean; busy: boolean; warn?: boolean }) {
     if (!this.spr.active && !this.dying) return;
     const v = this.vis;
     v.setTexture(this.spr.texture.key, this.spr.frame.name);
@@ -105,6 +105,8 @@ export class BossRig {
       /* defeat() drives the tint */
     } else if (s.flash) v.setTintFill(0xffffff);
     else if (s.open) v.setTint(Math.floor(now / 90) % 2 ? 0xffe088 : 0xfff8d0);
+    // Telegraph: the boss turns yellow while winding up (Admin Warlords "tell").
+    else if (s.warn) v.setTint(0xffe066);
     else if (this.m.glow > 0.05) v.setTint(Phaser.Display.Color.Interpolate.ColorWithColor(
       Phaser.Display.Color.ValueToColor(this.tintBase ?? 0xffffff),
       Phaser.Display.Color.ValueToColor(this.glowColor),

@@ -1,8 +1,7 @@
 #!/usr/bin/env python3
 """
-Build in-game sprites from Hayden's cut-out drawings (Admin Warlords,
-orb) plus the code-drawn candle icon. The credits picture is drawn in
-code by make-credits-art.py, called at the end.
+Build Hayden's in-game art: the code-drawn candle icon here, then
+make-candy-cube.py, make-admin-warlords.py and make-credits-art.py.
 
 Candy Cube's in-game sheets and the elf hat are drawn by
 make-candy-cube.py (same painted style as Cuboe/Cubro). This script
@@ -29,29 +28,9 @@ def fit(im: Image.Image, box: int, pad=0.08) -> Image.Image:
     return canvas
 
 def main():
-    def boss(name, box=256, pad=0.06):
-        im = fit(Image.open(CUT / f"{name}.png"), box, pad=pad)
-        im.save(OUT / f"{name}.png", optimize=True)
-        print("wrote", f"public/game/sprites/{name}.png", im.size)
-
-    boss("warlord-1")
-    boss("warlord-2")
-    boss("warlord-3")
-    # group portrait for menus / HUD
-    grp = Image.open(CUT / "admin-warlords.png")
-    # wide
-    W, H = 384, 192
-    s = min((W * 0.96) / grp.size[0], (H * 0.96) / grp.size[1])
-    rs = grp.resize((max(1, int(grp.size[0] * s)), max(1, int(grp.size[1] * s))), Image.Resampling.LANCZOS)
-    canvas = Image.new("RGBA", (W, H), (0, 0, 0, 0))
-    canvas.alpha_composite(rs, ((W - rs.size[0]) // 2, H - rs.size[1] - 4))
-    canvas.save(OUT / "admin-warlords.png", optimize=True)
-    print("wrote public/game/sprites/admin-warlords.png")
-
-    orb = Image.open(CUT / "admin-orb.png")
-    orb64 = fit(orb, 64, pad=0.04)
-    orb64.save(OUT / "admin-orb.png", optimize=True)
-    print("wrote public/game/sprites/admin-orb.png")
+    # Admin Warlords (3 phase sheets), their group portrait and the Admin orb
+    # are drawn in code in the boss style by make-admin-warlords.py (run at
+    # the end); the photo cutouts stay in assets/hayden/cutouts/ as reference.
 
     # The credits picture is redrawn in code in the sprite style by
     # make-credits-art.py (run at the end); the cutout stays as reference.
@@ -75,6 +54,7 @@ def main():
     # Candy Cube in Cuboe/Cubro style + elf hat + cosmetics sheet
     import subprocess, sys
     subprocess.check_call([sys.executable, str(Path(__file__).with_name("make-candy-cube.py"))])
+    subprocess.check_call([sys.executable, str(Path(__file__).with_name("make-admin-warlords.py"))])
     # Credits "Thanks for playing!" picture in the same style
     subprocess.check_call([sys.executable, str(Path(__file__).with_name("make-credits-art.py"))])
 

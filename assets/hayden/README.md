@@ -22,9 +22,8 @@ silhouette is part of the drawing.
 **not** used as the in-game sprite (the photographed crayon cutout sat
 outside the style of Cuboe, Cubro, and the credits drawing).
 
-Admin Warlords and the Admin orb are still scaled from these cutouts into
-`public/game/sprites/`. The credits Cuboe + Cubro cutouts stay here as
-Hayden's reference; the in-game credits picture is redrawn in code (below).
+The Admin Warlords cutouts (and the Admin orb cutout) stay here as Hayden's
+reference only; the in-game boss sheets are redrawn in code (below).
 
 ## Candy Cube in-game art
 
@@ -72,3 +71,20 @@ are their real in-game selves: frames taken straight from the game's sprite
 sheets (Cuboe's arms-up jump frame, Cubro's idle frame mirrored to face
 Cuboe), scaled up smoothly like the game draws them, with a soft shadow.
 No AI art, no third-party art.
+
+## Admin Warlords in-game art
+
+`public/game/sprites/warlord-{1,2,3}.png` (one per phase), `admin-orb.png`
+and the `admin-warlords.png` group portrait are drawn in code by
+`scripts/art/make-admin-warlords.py`, in the same style as the other bosses:
+2x2 sheets of 128px frames, feet on y=118, chunky dark-maroon outline, soft
+shading, the Candy Warlock's dark armour + purple + gold palette, and a
+4-frame idle loop (`warlord-N-idle`, 6 fps). Each keeps Hayden's design from
+`originals/admin-warlords*.jpg`: (1) round horned head with the black mask
+stripe and teardrop eyes, V cape collar, dark chest and belt, both claws up
+with an orb each; (2) tall centre spike and two horns, black diamond eye,
+upside-down triangle chest plate with a V, jagged cape, round belly, orb held
+out; (3) tall ribbed helmet with a blade crest, barrel body with black
+chevron bands, orb held out, round fist. Pencil black became dark armour,
+white paper became pale bone, and each phase has its own glow (purple,
+magenta, red). No AI art, no third-party art.

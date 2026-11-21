@@ -22,10 +22,14 @@ In the game, `src/game/bosses/rig.ts` adds a dark aura, floating cursed bits and
 
 ## Hayden's drawings (November 2026)
 
-`make-hayden-sprites.py` builds Admin Warlord portraits, the Admin orb
-projectile and the small code-drawn candle icon from the cutouts in
-`assets/hayden/cutouts/`. It then runs `make-candy-cube.py` and
-`make-credits-art.py`.
+`make-hayden-sprites.py` draws the small candle icon, then runs
+`make-candy-cube.py`, `make-admin-warlords.py` and `make-credits-art.py`.
+
+`make-admin-warlords.py` redraws Hayden's three Admin Warlords (one sheet per
+phase, `warlord-1/2/3.png`), the Admin orb and the group portrait in the same
+style as the other bosses (2x2 sheets of 128px frames, 4-frame idle loop,
+dark outline, soft shading, dark armour + purple + gold). His photo cutouts
+stay in `assets/hayden/cutouts/` as reference.
 
 `make-credits-art.py` builds the credits page ("Thanks for playing!
 -Cuboe and Cubro") in Hayden's layout, using Cuboe and Cubro frames taken
