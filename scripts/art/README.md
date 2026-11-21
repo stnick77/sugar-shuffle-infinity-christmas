@@ -23,9 +23,15 @@ In the game, `src/game/bosses/rig.ts` adds a dark aura, floating cursed bits and
 ## Hayden's drawings (November 2026)
 
 `make-hayden-sprites.py` builds Admin Warlord portraits, the Admin orb
-projectile, the credits Cuboe + Cubro drawing, and the small code-drawn
-candle icon from the cutouts in `assets/hayden/cutouts/`. It then runs
-`make-candy-cube.py`.
+projectile and the small code-drawn candle icon from the cutouts in
+`assets/hayden/cutouts/`. It then runs `make-candy-cube.py` and
+`make-credits-art.py`.
+
+`make-credits-art.py` redraws Hayden's credits page ("Thanks for playing!
+-Cuboe and Cubro", Cuboe waving with his cap and star, Cubro with sunglasses,
+six-pack and a thumbs-up) in the same sprite style, into
+`public/game/sprites/credits-cuboe-cubro.png`. His photo stays in
+`assets/hayden/originals/credits.jpg`.
 
 `make-candy-cube.py` draws Candy Cube's in-game idle/run/jump/attack
 sheets and portrait, plus the elf-hat costume, in the same painted style

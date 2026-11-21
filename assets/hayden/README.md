@@ -22,8 +22,9 @@ silhouette is part of the drawing.
 **not** used as the in-game sprite (the photographed crayon cutout sat
 outside the style of Cuboe, Cubro, and the credits drawing).
 
-Admin Warlords, the Admin orb, and the credits Cuboe + Cubro drawing are
-still scaled from these cutouts into `public/game/sprites/`.
+Admin Warlords and the Admin orb are still scaled from these cutouts into
+`public/game/sprites/`. The credits Cuboe + Cubro cutouts stay here as
+Hayden's reference; the in-game credits picture is redrawn in code (below).
 
 ## Candy Cube in-game art
 
@@ -59,3 +60,15 @@ python3 scripts/art/make-hayden-sprites.py
 ```
 python3 scripts/art/make-candy-cube.py
 ```
+
+## Credits picture
+
+`public/game/sprites/credits-cuboe-cubro.png` is drawn in code by
+`scripts/art/make-credits-art.py` in the same style as the in-game sprites
+(rounded cubes, chunky dark-maroon outline, soft side shading, colours
+sampled from the Cuboe and Cubro sheets). It keeps Hayden's page from
+`originals/credits.jpg`: white paper with the fold, his words "Thanks for
+playing!" and "-Cuboe and Cubro" across the top, Cuboe on the left waving
+with his cap and tummy star, Cubro on the right with his box head,
+sunglasses, six-pack, dark shorts and a thumbs-up. Lettering uses Lilita One,
+the game's UI font. No AI art, no third-party art.

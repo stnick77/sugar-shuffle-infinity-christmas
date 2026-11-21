@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Build in-game sprites from Hayden's cut-out drawings (Admin Warlords,
-orb, credits) plus the code-drawn candle icon.
+orb) plus the code-drawn candle icon. The credits picture is drawn in
+code by make-credits-art.py, called at the end.
 
 Candy Cube's in-game sheets and the elf hat are drawn by
 make-candy-cube.py (same painted style as Cuboe/Cubro). This script
@@ -52,13 +53,8 @@ def main():
     orb64.save(OUT / "admin-orb.png", optimize=True)
     print("wrote public/game/sprites/admin-orb.png")
 
-    # credits drawing used on the credits screen
-    cred = Image.open(CUT / "credits-cuboe-cubro.png")
-    # scale to a reasonable web width ~900
-    tw = 900
-    th = int(cred.size[1] * tw / cred.size[0])
-    cred.resize((tw, th), Image.Resampling.LANCZOS).save(OUT / "credits-cuboe-cubro.png", optimize=True)
-    print("wrote public/game/sprites/credits-cuboe-cubro.png")
+    # The credits picture is redrawn in code in the sprite style by
+    # make-credits-art.py (run at the end); the cutout stays as reference.
 
     # --- code-drawn candle icon (closet); the elf hat and Candy Cube
     # sheets are drawn by make-candy-cube.py, which also composes
@@ -79,6 +75,8 @@ def main():
     # Candy Cube in Cuboe/Cubro style + elf hat + cosmetics sheet
     import subprocess, sys
     subprocess.check_call([sys.executable, str(Path(__file__).with_name("make-candy-cube.py"))])
+    # Credits "Thanks for playing!" picture in the same style
+    subprocess.check_call([sys.executable, str(Path(__file__).with_name("make-credits-art.py"))])
 
 
 if __name__ == "__main__":

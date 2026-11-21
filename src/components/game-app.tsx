@@ -759,10 +759,11 @@ function CreditsScreen({ onTitle }: { onTitle: () => void }) {
         </ul>
         <img
           src="/game/sprites/credits-cuboe-cubro.png"
-          alt="Cuboe and Cubro"
+          alt={`Cuboe and Cubro: ${CREDITS.signoff}`}
           className="mt-2 w-full max-w-lg object-contain"
         />
-        <p className="font-display text-2xl text-candy">{CREDITS.signoff}</p>
+        {/* The sign-off is lettered in the picture (scripts/art/make-credits-art.py); kept here for screen readers. */}
+        <p className="sr-only">{CREDITS.signoff}</p>
         <p className="text-sm text-cream-dim">{CREDITS.hint}</p>
         <Btn onClick={onTitle}>Main menu</Btn>
       </div>
