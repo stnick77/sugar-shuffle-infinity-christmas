@@ -56,6 +56,19 @@ old painted sheet, door and saloon background stay in `scripts/art/src/`
 (`outlaw-original.png`, `door-boss-outlaw-original.png`,
 `saloon-party-original.jpg`) for reverting.
 
+`make-midnight-shootout.py` draws the Marshmallow Outlaw fight (f2-boss)
+background, "a western shootout at midnight": a town main street seen down the
+road under a big full moon and stars, mesas and cacti, saloon (swinging doors),
+general store, barber, bank, sheriff and hotel fronts with warm windows and
+lanterns, a clock tower stopped at 12:00, a water tower, a hitching post, a
+tumbleweed and a notice board with the new Outlaw's wanted poster (cut from
+his in-game sprite, so run it after `make-outlaw.py`). Composed in the
+1920x800 display space the game stretches the arena background to (only
+x 0..~1425, y 0..720 is ever on camera, the floor covers y >= 672), with a
+lighter moonlit dust band behind the fighters and a darker floor edge, then
+saved as `public/game/bg/midnight-shootout.jpg` (1792x1008). The old
+`marsh-mash.jpg` stays in `public/game/bg/` (other floors still use it).
+
 `make-saloon-party.py` draws the Drunk Saloon (level f3-3) background: a
 bar party with every boss (Choco Man, the Outlaw behind the bar, the Candy
 Warlock, Fake Cuboe, Fake Cubro and all three Admin Warlords) cut from their

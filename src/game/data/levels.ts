@@ -361,7 +361,9 @@ export const LEVELS: Record<string, LevelDef> = {
     isBoss: true,
     bossId: "f2-boss",
     pizzaTime: 0,
-    bg: "/game/bg/marsh-mash.jpg",
+    // Hayden: "a western shoot out at midnight" (scripts/art/make-midnight-shootout.py).
+    // The old marsh-mash.jpg stays in public/game/bg/ (other floors still use it).
+    bg: "/game/bg/midnight-shootout.jpg",
     ground: "marsh",
   }),
   "f3-1": pack("f3-1", "Raisin Ruins", RUINS, { bg: "/game/bg/raisin-ruins.jpg", ground: "marsh" }),

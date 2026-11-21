@@ -54,3 +54,15 @@ describe("per-level themes (door, platform tiles, song)", () => {
     assert.equal(new Set(LEVEL_SONGS.map((s) => s.title)).size, LEVEL_SONGS.length);
   });
 });
+
+describe("level backgrounds", () => {
+  it("every level background file exists", () => {
+    for (const l of Object.values(LEVELS)) assert.ok(existsSync(new URL(`public${l.bg}`, root)), `${l.id}: ${l.bg}`);
+  });
+
+  it("the Marshmallow Outlaw fights in the midnight shootout (and only he does)", () => {
+    assert.equal(LEVELS["f2-boss"]!.bg, "/game/bg/midnight-shootout.jpg");
+    const users = Object.values(LEVELS).filter((l) => l.bg === "/game/bg/midnight-shootout.jpg").map((l) => l.id);
+    assert.deepEqual(users, ["f2-boss"]);
+  });
+});
