@@ -248,39 +248,102 @@ def bg_level0():
 
 
 def bg_motion():
-    """Motion: the hallways slide. Skewed walls with ghosted, smeared copies."""
+    """Motion, the sunny version: endless rolling green hills under a too-blue sky,
+    dotted with small, identical, pastel houses. Bright and cheerful, but empty:
+    no people, no cars, every window dark, every house the same distance apart."""
     w, h = 1850, 800
-    base = new_bg(w, h, YEL)
-    wallpaper(base, w, 140, 650, (228, 198, 100), (160, 120, 40), motif="diamond", step=34, seed=31)
-    ceiling(base, w, 140, off=(4,), lights_every=240, seed=32)
-    d = ImageDraw.Draw(base)
-    # skewed hallway openings (the corridors lean as they move)
-    for i, x in enumerate(range(60, w, 260)):
-        sk = 40 if i % 2 else -40
-        poly = [(S(x), S(650)), (S(x + 150), S(650)), (S(x + 150 + sk), S(330)), (S(x + sk), S(330))]
-        d.polygon(poly, fill=(150, 120, 50, 255), outline=INK + (255,), width=S(2))
-        inner = [(S(x + 30), S(650)), (S(x + 120), S(650)), (S(x + 120 + sk * 0.8), S(400)), (S(x + 30 + sk * 0.8), S(400))]
-        d.polygon(inner, fill=(70, 56, 20, 255))
-    carpet(base, w, 650, h, base=(146, 112, 60), seed=33)
-    # motion smear: offset ghost copies + speed lines
-    ghost = base.copy()
-    img = base.copy()
-    for k, (dx, a) in enumerate(((S(26), 70), (S(58), 40))):
-        g = ImageChops.offset(ghost, dx, 0)
-        g.putalpha(a)
-        img.alpha_composite(g)
+    img = new_bg(w, h, (110, 180, 245))
+    vgrad(img, 0, 520, (64, 150, 240), (196, 232, 255))  # a sky that is a little too perfect
+    rnd = random.Random(4702)
+    # the sun: a flat disc with a soft halo (it never moves)
+    glow(img, 1460, 120, 190, 190, (255, 250, 200), 150, 0.6)
     d = ImageDraw.Draw(img)
-    rnd = random.Random(34)
-    for _ in range(60):
-        y = rnd.uniform(170, 640)
-        x = rnd.uniform(0, w)
-        d.line([(S(x), S(y)), (S(x + rnd.uniform(60, 180)), S(y))], fill=(255, 250, 220, 90), width=S(1.5))
-    # sliding arrows painted on the wall
-    for x in range(140, w, 380):
-        for k in range(3):
-            xx = x + k * 26
-            d.polygon([(S(xx), S(250)), (S(xx + 16), S(266)), (S(xx), S(282)), (S(xx + 6), S(266))], fill=(120, 80, 20, 200))
-    finish(img, "br-motion.jpg", dark=0.8)
+    d.ellipse((S(1410), S(70), S(1510), S(170)), fill=(255, 246, 170, 255), outline=(255, 230, 120, 255), width=S(3))
+    # a few flat cartoon clouds, all the same shape
+    def cloud(cd, cx, cy, sc, a):
+        for ox, oy, r in ((-46, 6, 30), (-14, -10, 38), (26, -2, 34), (54, 10, 24), (0, 14, 34)):
+            cd.ellipse((S(cx + ox * sc - r * sc), S(cy + oy * sc - r * sc * 0.8), S(cx + ox * sc + r * sc), S(cy + oy * sc + r * sc * 0.8)), fill=(255, 255, 255, a))
+    cl = Image.new("RGBA", img.size, (255, 255, 255, 0))
+    cd = ImageDraw.Draw(cl)
+    for i, cx in enumerate(range(140, w, 330)):
+        cloud(cd, cx + (i % 2) * 60, 110 + (i % 3) * 46, 1.0 - (i % 3) * 0.15, 235)
+    img.alpha_composite(cl.filter(ImageFilter.GaussianBlur(S(1.2))))
+
+    def hill_pts(base_y, amp, period, phase):
+        pts = [(0, S(h))]
+        for x in range(0, w + 11, 10):
+            y = base_y - amp * (0.6 * math.sin(x / period + phase) + 0.4 * math.sin(x / (period * 0.47) + phase * 2.3))
+            pts.append((S(x), S(y)))
+        pts.append((S(w), S(h)))
+        return pts
+
+    def hill_y(base_y, amp, period, phase, x):
+        return base_y - amp * (0.6 * math.sin(x / period + phase) + 0.4 * math.sin(x / (period * 0.47) + phase * 2.3))
+
+    WALLS = [(255, 214, 214), (206, 236, 255), (255, 244, 196), (214, 246, 214), (236, 218, 255)]
+    ROOFS = [(226, 92, 92), (90, 140, 220), (240, 160, 70), (90, 180, 120), (170, 110, 200)]
+
+    def house(dd, x, y, sc, k):
+        """A tiny house standing on (x, y). Every one is the same, just recoloured."""
+        wcol, rcol = WALLS[k % 5], ROOFS[(k * 2 + 1) % 5]
+        bw, bh = 46 * sc, 32 * sc
+        dd.rectangle((S(x - bw / 2), S(y - bh), S(x + bw / 2), S(y)), fill=wcol + (255,), outline=INK + (255,), width=S(1.6 * sc))
+        dd.polygon([(S(x - bw / 2 - 6 * sc), S(y - bh)), (S(x), S(y - bh - 26 * sc)), (S(x + bw / 2 + 6 * sc), S(y - bh))], fill=rcol + (255,), outline=INK + (255,))
+        dd.rectangle((S(x + 8 * sc), S(y - bh - 22 * sc), S(x + 14 * sc), S(y - bh - 10 * sc)), fill=(150, 120, 110, 255), outline=INK + (255,))  # chimney (no smoke)
+        for wx in (-14, 8):  # dark windows: nobody is home
+            dd.rectangle((S(x + wx * sc), S(y - bh + 7 * sc), S(x + (wx + 9) * sc), S(y - bh + 16 * sc)), fill=(40, 46, 66, 255), outline=(255, 255, 255, 255), width=max(1, S(0.9 * sc)))
+        dd.rectangle((S(x - 3 * sc), S(y - 14 * sc), S(x + 4 * sc), S(y)), fill=(120, 80, 60, 255))  # door, closed
+
+    # three hill layers, far to near; houses sit on the far two
+    layers = [
+        (470, 40, 210, 0.3, (150, 210, 120), 0.55, 120),
+        (560, 50, 260, 1.7, (110, 196, 92), 0.8, 170),
+        (660, 34, 300, 3.1, (84, 176, 72), 0, 0),
+    ]
+    k = 0
+    for base_y, amp, period, phase, col, sc, spacing in layers:
+        lay = Image.new("RGBA", img.size, (0, 0, 0, 0))
+        ld = ImageDraw.Draw(lay)
+        ld.polygon(hill_pts(base_y, amp, period, phase), fill=col + (255,))
+        # soft light on the crests, mown stripes on the slopes
+        for x in range(0, w, 24):
+            y = hill_y(base_y, amp, period, phase, x)
+            ld.line([(S(x), S(y + 6)), (S(x + 12), S(y + 40))], fill=tuple(min(255, c + 16) for c in col) + (90,), width=S(5))
+        if sc:
+            for x in range(60 + int(phase * 40) % spacing, w, spacing):
+                house(ld, x, hill_y(base_y, amp, period, phase, x) + 4, sc, k)
+                k += 1
+            # a white picket fence that never ends
+            for x in range(0, w, int(18 * sc)):
+                y = hill_y(base_y, amp, period, phase, x) + 10 * sc
+                ld.rectangle((S(x), S(y - 10 * sc), S(x + 4 * sc), S(y)), fill=(255, 255, 255, 230))
+        img.alpha_composite(lay)
+        # a little haze between layers (distance)
+        if sc:
+            haze = Image.new("RGBA", img.size, (210, 236, 255, 0))
+            ImageDraw.Draw(haze).rectangle((0, 0, img.width, img.height), fill=(210, 236, 255, 34))
+            img.alpha_composite(haze)
+    # near grass: tufts and a few flowers, all the same height
+    d = ImageDraw.Draw(img)
+    for x in range(0, w, 14):
+        y = hill_y(660, 34, 300, 3.1, x) + rnd.uniform(20, 120)
+        d.line([(S(x), S(y)), (S(x - 3), S(y - 9))], fill=(60, 140, 50, 255), width=S(2))
+        d.line([(S(x), S(y)), (S(x + 4), S(y - 10))], fill=(60, 140, 50, 255), width=S(2))
+    for x in range(30, w, 96):
+        y = hill_y(660, 34, 300, 3.1, x) + 60
+        for a in range(5):
+            ang = a * math.tau / 5
+            d.ellipse((S(x + math.cos(ang) * 5 - 4), S(y + math.sin(ang) * 5 - 4), S(x + math.cos(ang) * 5 + 4), S(y + math.sin(ang) * 5 + 4)), fill=(255, 255, 255, 255))
+        d.ellipse((S(x - 3), S(y - 3), S(x + 3), S(y + 3)), fill=(255, 210, 60, 255))
+    # the uncanny bit: one far-off telephone wire that goes on forever, no birds on it
+    for x in range(-20, w + 200, 300):
+        y0 = hill_y(560, 50, 260, 1.7, x) - 70
+        d.line([(S(x), S(y0)), (S(x), S(y0 + 74))], fill=(110, 90, 70, 255), width=S(3))
+        d.line([(S(x - 10), S(y0 + 6)), (S(x + 10), S(y0 + 6))], fill=(110, 90, 70, 255), width=S(2))
+        nx = x + 300
+        ny = hill_y(560, 50, 260, 1.7, nx) - 70
+        d.line([(S(x + 8), S(y0 + 6)), (S((x + nx) / 2 + 8), S((y0 + ny) / 2 + 24)), (S(nx - 8), S(ny + 6))], fill=(60, 60, 60, 200), width=S(1.2), joint="curve")
+    finish(img, "br-motion.jpg", dark=1.0, sat=1.05, floor_from=0.9, floor_dark=50, vignette=False)
 
 
 def bg_pool():
@@ -506,15 +569,27 @@ def door_br_level0():
 
 
 def door_br_motion():
-    img, d = door_frame((210, 176, 90), (170, 130, 60), (196, 160, 80), (156, 120, 50))
-    for k in range(3):  # sliding arrows
-        x = 26 + k * 14
-        d.polygon(D.P(x, 60, x + 12, 72, x, 84, x + 5, 72), fill=(110, 70, 20, 255))
-    for y in (100, 112, 124):  # conveyor stripes
-        d.line(D.P(20, y, 72, y), fill=(40, 30, 14, 255), width=3 * D.S)
-        for x in range(22, 72, 10):
-            d.line(D.P(x, y - 4, x + 5, y, x, y + 4), fill=(250, 210, 80, 255), width=D.S)
-    D.knob(d, 64, 92)
+    """Motion (sunny): the front door of a little pastel house, roof and all."""
+    img = D.canvas(DW_, DH_)
+    d = ImageDraw.Draw(img)
+    # wall + roof
+    d.rectangle(D.P(10, 44, 82, 142), fill=(255, 224, 224, 255), outline=D.INK, width=3 * D.S)
+    d.polygon(D.P(2, 48, 46, 8, 90, 48), fill=(226, 92, 92, 255), outline=D.INK, width=3 * D.S)
+    for y in (22, 32, 42):  # shingle lines
+        d.line(D.P(46 - (y - 8) * 1.05, y, 46 + (y - 8) * 1.05, y), fill=(180, 60, 60, 255), width=D.S)
+    # round attic window, dark (nobody home)
+    d.ellipse(D.P(38, 22, 54, 38), fill=(40, 46, 66, 255), outline=(255, 255, 255, 255), width=2 * D.S)
+    # the door: mint with a small window and a sun knocker
+    d.rectangle(D.P(26, 66, 66, 140), fill=(150, 220, 190, 255), outline=D.INK, width=3 * D.S)
+    d.rectangle(D.P(34, 74, 58, 92), fill=(40, 46, 66, 255), outline=(255, 255, 255, 255), width=2 * D.S)
+    d.line(D.P(46, 74, 46, 92), fill=(255, 255, 255, 255), width=D.S)
+    d.ellipse(D.P(40, 100, 52, 112), fill=(255, 220, 90, 255), outline=D.INK, width=D.S)
+    D.knob(d, 60, 116)
+    # welcome mat + two tidy flowers
+    d.rectangle(D.P(22, 136, 70, 142), fill=(120, 170, 90, 255))
+    for fx in (16, 76):
+        d.line(D.P(fx, 142, fx, 126), fill=(60, 140, 50, 255), width=2 * D.S)
+        d.ellipse(D.P(fx - 4, 120, fx + 4, 128), fill=(255, 255, 255, 255), outline=D.INK, width=D.S)
     return img
 
 
@@ -592,7 +667,7 @@ def tile_specs():
     return {
         "tiles-br-hub": ("speckle", dict(base=(150, 128, 70), chips=[(120, 100, 50), (170, 150, 90)], n=40, size=(1, 3)), "flat", dict(col=(196, 170, 96)), []),
         "tiles-br-level0": ("speckle", dict(base=(176, 154, 84), chips=[(140, 120, 60), (196, 176, 106)], n=44, size=(1, 3)), "flat", dict(col=(230, 212, 120)), []),
-        "tiles-br-motion": ("plate", dict(base=(190, 160, 70), rivet=(80, 60, 20)), "flat", dict(col=(120, 96, 40)), []),
+        "tiles-br-motion": ("speckle", dict(base=(150, 104, 62), chips=[(120, 80, 46), (176, 130, 84), (110, 110, 110)], n=30, size=(1.5, 4)), "grass", dict(col=(96, 196, 80)), []),
         "tiles-br-pool": ("grid", dict(base=(244, 248, 248), line=(176, 200, 206), cell=24), "flat", dict(col=(255, 255, 255)), []),
         "tiles-br-cave": ("blobs", dict(cols=[(70, 62, 68), (84, 74, 78), (60, 52, 58)], base=(40, 34, 40), r=(10, 18), n=12), "lumps", dict(col=(110, 100, 104)), ["crystals"]),
         "tiles-br-bacteria": ("speckle", dict(base=(96, 80, 44), chips=[(30, 24, 16), (60, 50, 30)], n=36, size=(2, 5)), "drip", dict(col=(24, 18, 12)), []),
@@ -668,21 +743,27 @@ def mob_smiler(f):
 
 
 def mob_chair(f):
-    """Motion: a runaway office chair with googly eyes that rolls back and forth."""
+    """Motion (sunny): a runaway pastel lawn chair with googly eyes that scoots back and forth."""
     img = C.canvas()
-    spin = f * 0.4
-    for k in range(5):  # wheels
-        a = spin + k * math.pi * 2 / 5
-        wx = 64 + math.cos(a) * 18
-        part(img, ellipse_mask((wx - 4.5, C.BOTTOM - 9, wx + 4.5, C.BOTTOM)), (40, 40, 46), outline=1.4, sheen=False)
-    W.limb(img, [(46, 104), (82, 104)], 2.2, (70, 70, 80))
-    W.limb(img, [(64, 104), (64, 86)], 2.6, (90, 90, 100))
-    part(img, rounded_rect_mask((40, 76, 88, 90), 5), (196, 150, 60), outline=2.0)  # seat
-    part(img, rounded_rect_mask((44, 36, 84, 78), 9), (210, 170, 70), outline=2.0)  # backrest
-    inner(img, rounded_rect_mask((50, 42, 78, 72), 6), (226, 190, 90))
+    bob = [0, -2, 0, -1][f]
+    lean = [0, 2, 0, -2][f]
+    PL = (120, 210, 200)
+    PL2 = (90, 180, 170)
+    # legs: two A-frames that scissor as it scoots
     for side in (-1, 1):
-        part(img, rounded_rect_mask((64 + side * 26 - 4, 66, 64 + side * 26 + 4, 82), 3), (70, 70, 80), outline=1.4, sheen=False)
-    eyes(img, 64 + (f % 2), 54, 5.5, dx=1.5 if f < 2 else -1.5)
+        W.limb(img, [(64 + side * 10 + lean, 90 + bob), (64 + side * 24 - lean, C.BOTTOM - 1)], 2.2, (230, 230, 236))
+        W.limb(img, [(64 + side * 22 + lean, 90 + bob), (64 + side * 8 - lean, C.BOTTOM - 1)], 2.0, (210, 210, 220))
+    # seat with woven straps
+    part(img, rounded_rect_mask((38, 80 + bob, 90, 92 + bob), 4), PL, outline=2.0)
+    # backrest (tilted), striped straps
+    part(img, rounded_rect_mask((42 + lean, 34 + bob, 86 + lean, 80 + bob), 7), PL, outline=2.0)
+    for k in range(4):
+        y = 42 + k * 9 + bob
+        blit_color(img, rounded_rect_mask((46 + lean, y, 82 + lean, y + 4), 2), PL2 if k % 2 else (255, 255, 255))
+    # armrests
+    for side in (-1, 1):
+        part(img, rounded_rect_mask((64 + side * 26 - 5, 72 + bob, 64 + side * 26 + 5, 78 + bob), 2), (230, 230, 236), outline=1.4, sheen=False)
+    eyes(img, 64 + lean + (f % 2), 54 + bob, 5.5, dx=1.5 if f < 2 else -1.5)
     return img
 
 
@@ -785,6 +866,17 @@ def main():
         sheet.paste(TL.draw_frame("tiles-br-heaven", spec, False), (96, 0))
         sheet.save(SPR / "tiles" / "tiles-br-heaven.png", optimize=True)
         bg_heaven()
+        return
+    if sys.argv[1:] == ["motion"]:
+        # just the sunny Motion assets (redone later; leaves the others untouched)
+        D.save(door_br_motion(), DW_, DH_, "door-br-motion")
+        spec = tile_specs()["tiles-br-motion"]
+        sheet = Image.new("RGB", (192, 96))
+        sheet.paste(TL.draw_frame("tiles-br-motion", spec, True), (0, 0))
+        sheet.paste(TL.draw_frame("tiles-br-motion", spec, False), (96, 0))
+        sheet.save(SPR / "tiles" / "tiles-br-motion.png", optimize=True)
+        W.make_sheet([mob_chair(f) for f in range(4)], SPR / "br-chair.png")
+        bg_motion()
         return
     if sys.argv[1:] == ["escape"]:
         # just the escape chase assets (added later; leaves the others untouched)

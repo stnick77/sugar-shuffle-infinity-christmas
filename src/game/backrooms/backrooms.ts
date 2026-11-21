@@ -103,7 +103,7 @@ export function leaveBackrooms() {
  * Each room's own enemies. Every set is used in exactly one room.
  * - br-moth:   pale ceiling moths that flutter around the hub lights (harmless).
  * - br-smiler: a floating grin in the dark wallpaper (Level 0).
- * - br-chair:  a runaway office chair that rolls back and forth (Motion).
+ * - br-chair:  a runaway pastel lawn chair that scoots back and forth (Motion, the sunny version).
  * - br-duck:   a hopping pool-floatie duck (Pool Rooms).
  * - br-hound:  a shadow hound that crouches, then charges (Cave System).
  * - br-spore:  Bacteria's little spore blobs (boss fight minions).

@@ -30,9 +30,10 @@ export const LEVEL_SONG_GAINS: Record<string, number> = {
   "admin-override": 0.921,
   "fluorescent-hum": 0.872,
   "yellow-wallpaper-walk": 1,
-  "conveyor-shuffle": 0.921,
+  "empty-sunday": 0.901,
   "chlorine-dream": 0.882,
   "stalactite-drip": 1.015,
   "bacteria-stalks": 1.509,
-  "red-hallway-run": 1.027
+  "red-hallway-run": 1.027,
+  "above-the-yellow": 0.831
 };

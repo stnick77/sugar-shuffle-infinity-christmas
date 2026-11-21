@@ -395,3 +395,20 @@ describe("the hero glitches when hurt (Backrooms only)", () => {
     for (let l = 0; l <= 1; l += 0.05) assert.ok(glitchAmbientRate(l) <= 3);
   });
 });
+
+describe("Motion (sunny version)", () => {
+  it("uses its own bright-but-eerie song, a grass tile sheet and a house door", async () => {
+    const { LEVEL_THEMES } = await import("../data/levelThemes.ts");
+    const { songById } = await import("../music/levelSongs.ts");
+    const { LEVEL_SONG_GAINS } = await import("../music/levelSongGains.ts");
+    const theme = LEVEL_THEMES["br-motion"];
+    assert.equal(theme.song, "empty-sunday");
+    const song = songById("empty-sunday");
+    assert.ok(song && song.level === "br-motion");
+    assert.equal(song.mode, "lydian", "bright major colour with a raised 4th (a bit off)");
+    assert.ok(LEVEL_SONG_GAINS["empty-sunday"] > 0, "loudness gain rendered");
+    assert.equal(songById("conveyor-shuffle"), undefined, "the old factory groove is gone");
+    for (const f of ["/game/bg/br-motion.jpg", `/game/sprites/tiles/${theme.tiles}.png`, `/game/sprites/doors/${theme.door}.png`, "/game/sprites/br-chair.png"])
+      assert.ok(existsSync(new URL(`../../../public${f}`, import.meta.url)), f);
+  });
+});

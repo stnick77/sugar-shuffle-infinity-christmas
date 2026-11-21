@@ -52,7 +52,7 @@ export const LEVEL_THEMES: Record<string, LevelTheme> = {
   // one themed hub (its door is the EXIT door back to Floor 5).
   "hub-backrooms": { door: "door-br-exit", tiles: "tiles-br-hub", song: "fluorescent-hum" },
   "br-0": { door: "door-br-level0", tiles: "tiles-br-level0", song: "yellow-wallpaper-walk" },
-  "br-motion": { door: "door-br-motion", tiles: "tiles-br-motion", song: "conveyor-shuffle" },
+  "br-motion": { door: "door-br-motion", tiles: "tiles-br-motion", song: "empty-sunday" },
   "br-pool": { door: "door-br-pool", tiles: "tiles-br-pool", song: "chlorine-dream" },
   "br-cave": { door: "door-br-cave", tiles: "tiles-br-cave", song: "stalactite-drip" },
   "br-boss": { door: "door-boss-bacteria", tiles: "tiles-br-bacteria", song: "bacteria-stalks" },
