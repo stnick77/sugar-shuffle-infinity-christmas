@@ -27,11 +27,11 @@ projectile and the small code-drawn candle icon from the cutouts in
 `assets/hayden/cutouts/`. It then runs `make-candy-cube.py` and
 `make-credits-art.py`.
 
-`make-credits-art.py` redraws Hayden's credits page ("Thanks for playing!
--Cuboe and Cubro", Cuboe waving with his cap and star, Cubro with sunglasses,
-six-pack and a thumbs-up) in the same sprite style, into
-`public/game/sprites/credits-cuboe-cubro.png`. His photo stays in
-`assets/hayden/originals/credits.jpg`.
+`make-credits-art.py` builds the credits page ("Thanks for playing!
+-Cuboe and Cubro") in Hayden's layout, using Cuboe and Cubro frames taken
+straight from their in-game sheets (cuboe-jump arms-up frame, cubro-idle
+frame mirrored), into `public/game/sprites/credits-cuboe-cubro.png`. His
+photo stays in `assets/hayden/originals/credits.jpg`.
 
 `make-candy-cube.py` draws Candy Cube's in-game idle/run/jump/attack
 sheets and portrait, plus the elf-hat costume, in the same painted style
