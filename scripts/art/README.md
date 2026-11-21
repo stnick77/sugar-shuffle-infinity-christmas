@@ -2,7 +2,15 @@
 
 All of this art is original and drawn by code: no image prompts, no reference art, no other games' characters.
 
-- `make-doors.py` makes `public/game/sprites/door-room.png` and `door-boss.png`.
+- `make-doors.py` makes `public/game/sprites/door-room.png` and `door-boss.png` (still used for
+  the exit doors, PC and elevators, and as a fallback).
+- `make-level-doors.py` makes one themed hub door per level in `public/game/sprites/doors/`
+  (room doors 92x144, boss doors 136x184; e.g. swinging saloon doors for Drunk Saloon). The
+  Floor 5 elevator shows the Rotting Pumpkin door (it leads to the final run).
+- `make-level-tiles.py` makes one platform tile sheet per level in `public/game/sprites/tiles/`
+  (192x96: a surface frame and a fill frame, shown at the 48px tile size; collision unchanged).
+  The old shared `ground-candy.png` / `ground-marsh.png` stay as the fallback.
+  Which level uses which door/tiles/song: `src/game/data/levelThemes.ts`.
   - Room door: a gingerbread frame with candy-cane posts, gumdrops, a peppermint knob and a round window that the game lights in each room's colour.
   - Boss door: a frosted midnight door with candy-corn horns, a friendly candy skull, licorice bars and a bow padlock.
 - `make-cursed-fakes.py` makes `public/game/sprites/fake-{cuboe,cubro}-{idle,run,jump,attack}.png`.
