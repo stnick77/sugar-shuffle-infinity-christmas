@@ -31,6 +31,11 @@ import {
   chaseCheckpoint,
   TRAPPED_ENDING,
   TRAPPED_NAME,
+  GLITCH_FLICKER_MS,
+  glitchAmbientRate,
+  glitchBurst,
+  glitchConstant,
+  glitchLevel,
   caught,
   escapeChoices,
   escapeRewards,
@@ -78,7 +83,8 @@ describe("Floor 470539758: getting there", () => {
     assert.equal(hubIdFor(s.floor), BACKROOMS_HUB);
     assert.equal(leaveBackrooms().floor, 5);
     assert.equal(hubIdFor(5), "hub-5");
-    assert.ok(LEVELS[BACKROOMS_HUB]!.rows.some((r) => r.includes("O")), "hub has the EXIT door");
+    // no way back up from the hub: only escaping Bacteria (or TrAppEd fOrEvEr) gets you out
+    assert.ok(!LEVELS[BACKROOMS_HUB]!.rows.some((r) => r.includes("O")), "hub must not have an EXIT door");
   });
 });
 
@@ -364,4 +370,28 @@ describe("TrAppEd fOrEvEr", () => {
     assert.ok(!inBackrooms("hub-5"));
   });
   void HEROES;
+});
+
+describe("the hero glitches when hurt (Backrooms only)", () => {
+  it("none at full health, mild at mid, heavy at the last HP", () => {
+    assert.equal(glitchLevel(6, 6), 0);
+    assert.ok(glitchLevel(4, 6) > 0 && glitchLevel(4, 6) < 0.5);
+    assert.equal(glitchLevel(1, 6), 1);
+    assert.equal(glitchAmbientRate(glitchLevel(6, 6)), 0, "no ambient glitch at full health");
+    assert.equal(glitchAmbientRate(glitchLevel(5, 6)), 0);
+    assert.ok(glitchAmbientRate(glitchLevel(3, 6)) > 0, "mild ambient at mid");
+    assert.ok(glitchAmbientRate(1) > glitchAmbientRate(0.6), "more often when lower");
+    assert.ok(glitchConstant(glitchLevel(1, 6)) && !glitchConstant(glitchLevel(2, 6)), "near-constant only at the last HP");
+  });
+
+  it("each hit is stronger when hurt more", () => {
+    assert.ok(glitchBurst(1).split > glitchBurst(0.3).split);
+    assert.ok(glitchBurst(1).ms > glitchBurst(0.3).ms);
+    assert.ok(glitchBurst(1).ms <= 600, "short");
+  });
+
+  it("is not seizure-y: flicker and ambient rate stay at or under 3 Hz", () => {
+    assert.ok(1000 / GLITCH_FLICKER_MS <= 3 * 2 - 0.1, "flicker toggles at most ~6/s = 3 Hz blink");
+    for (let l = 0; l <= 1; l += 0.05) assert.ok(glitchAmbientRate(l) <= 3);
+  });
 });
