@@ -7,7 +7,8 @@ import { ADMIN_BOSS_ID, ADMIN_PHASE_HP, usesCuboeKit } from "../hayden/content";
 import { ADMIN_POWERS, freezeSpeedMul, inFreeze, nextAdminPhase, patternAt, powerAt, powerDue, teleportTarget, type AdminPhase, type AdminPowerId } from "../bosses/adminWarlords";
 import { emitGame } from "../bus";
 import { bootInput, pollGamepad, readActions, readActionsP2, setCoopInput, setInjected } from "../input";
-import { sfx } from "../audio";
+import { setLevelSong, sfx } from "../audio";
+import { themeFor } from "../data/levelThemes";
 import { useGame } from "@/store/game-store";
 import { ssi } from "../runtime";
 // 'Tis the Seasones DLC — everything below is gated on xmasOn() / house rooms.
@@ -211,6 +212,19 @@ export class PlayScene extends Phaser.Scene {
     sheet("pickups", "/game/sprites/pickups.png");
     s("door-room", "/game/sprites/door-room.png");
     s("door-boss", "/game/sprites/door-boss.png");
+    // Per-level tiles (2 frames: surface, fill) and, in a hub, each room's own door.
+    const theme = themeFor(room.id);
+    if (theme && !this.textures.exists(theme.tiles)) {
+      this.load.spritesheet(theme.tiles, `/game/sprites/tiles/${theme.tiles}.png`, { frameWidth: 96, frameHeight: 96 });
+    }
+    if (room.isHub && !this.isHouse) {
+      const f = FLOORS[useGame.getState().save.floor - 1];
+      const ids = f ? [...f.levels.map((l) => l.id), f.boss.id, ...(f.id >= 5 ? ["final-run"] : [])] : [];
+      for (const id of ids) {
+        const door = themeFor(id)?.door;
+        if (door) s(door, `/game/sprites/doors/${door}.png`);
+      }
+    }
     if (room.bossId === "f3-boss" || room.bossId === "f4-boss") {
       // cursed Fake Candy Cuboe / Cubro (own sheets, same frame layout as the heroes)
       for (const h of ["cuboe", "cubro"] as const) {
@@ -245,6 +259,8 @@ export class PlayScene extends Phaser.Scene {
 
     this.level = LEVELS[this.levelId] ?? HOUSE_LEVELS[this.levelId] ?? LEVELS["hub-1"]!;
     setMusicArea(this.isHouse ? "home" : this.level.isBoss ? "boss" : this.level.isHub ? "hub" : "level");
+    // each level has its own original track (hubs and the house keep the shared loop)
+    setLevelSong(this.isHouse || this.level.isHub ? null : (themeFor(this.level.id)?.song ?? null));
     this.label = this.level.name;
     const { w, h } = worldSize(this.level);
     const open = !this.level.isHub && !this.level.isBoss;
@@ -393,8 +409,16 @@ export class PlayScene extends Phaser.Scene {
       this.add.rectangle(x, y - TILE / 2 + 3, TILE + 1, 6, 0xc47a3a).setDepth(1);
       img = rec;
     } else {
-      const key = this.level.ground === "marsh" ? "ground-marsh" : "ground-candy";
-      img = this.add.image(x, y, key).setDisplaySize(TILE + 1, TILE + 1).setDepth(1);
+      const theme = themeFor(this.level.id);
+      if (theme && this.textures.exists(theme.tiles)) {
+        // surface frame where the cell above is open, fill frame under another tile
+        const above = this.level.rows[ty - 1]?.[tx] ?? ".";
+        const frame = above === "#" || above === "=" ? 1 : 0;
+        img = this.add.image(x, y, theme.tiles, frame).setDisplaySize(TILE + 1, TILE + 1).setDepth(1);
+      } else {
+        const key = this.level.ground === "marsh" ? "ground-marsh" : "ground-candy";
+        img = this.add.image(x, y, key).setDisplaySize(TILE + 1, TILE + 1).setDepth(1);
+      }
     }
     this.physics.add.existing(img, true);
     const body = (img as Phaser.Physics.Arcade.Image).body as Phaser.Physics.Arcade.StaticBody;
@@ -416,14 +440,21 @@ export class PlayScene extends Phaser.Scene {
       .setDepth(8);
   }
 
-  private drawDoor(x: number, y: number, label: string, kind: "room" | "boss" | "up" | "pc" | "exit", accent?: number) {
+  private drawDoor(x: number, y: number, label: string, kind: "room" | "boss" | "up" | "pc" | "exit", accent?: number, art?: string) {
     const bottom = y + TILE / 2 - 4; // stand on the floor tile below
+    const own = art && this.textures.exists(art) ? art : null;
     if (kind === "boss") {
       // frosted boss door: pulsing glow behind it
       const glow = this.add.ellipse(x, bottom - 46, 92, 112, 0xff4d8a, 0.28).setDepth(1.9);
       this.tweens.add({ targets: glow, alpha: 0.08, scale: 1.08, duration: 900, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
-      this.add.image(x, bottom, "door-boss").setOrigin(0.5, 1).setDisplaySize(68, 92).setDepth(2);
+      this.add.image(x, bottom, own ?? "door-boss").setOrigin(0.5, 1).setDisplaySize(68, 92).setDepth(2);
       this.marker(x, bottom - 104, label);
+      return;
+    }
+    if (own) {
+      // the level's own themed door (scripts/art/make-level-doors.py)
+      this.add.image(x, bottom, own).setOrigin(0.5, 1).setDisplaySize(46, 72).setDepth(2);
+      this.marker(x, bottom - 86, label);
       return;
     }
     // gingerbread door; its round window glows in the room's accent colour
@@ -475,14 +506,16 @@ export class PlayScene extends Phaser.Scene {
         if (this.level.isBoss) this.spawnBoss(x, y);
         else {
           this.interactives.push({ kind: "boss", id: `f${floor}-boss`, x, y });
-          this.drawDoor(x, y, "BOSS", "boss");
+          this.drawDoor(x, y, "BOSS", "boss", undefined, themeFor(`f${floor}-boss`)?.door);
         }
       } else if (ch === "P") {
         this.interactives.push({ kind: "pc", id: "pc", x, y });
         this.drawDoor(x, y, "PC", "pc");
       } else if (ch === "E") {
         this.interactives.push({ kind: "elevator", id: "next", x, y });
-        this.drawDoor(x, y, "UP", "up");
+        // Floor 5's elevator leads to the final run: show the Rotting Pumpkin door there.
+        if (floor >= 5) this.drawDoor(x, y, "FINAL", "up", undefined, themeFor("final-run")?.door);
+        else this.drawDoor(x, y, "UP", "up");
       } else if (ch === "T") {
         const id = `treasure-${this.levelId}`;
         if (!useGame.getState().save.claimed.includes(id)) {
@@ -512,7 +545,7 @@ export class PlayScene extends Phaser.Scene {
         this.interactives.push({ kind: "door", id: room?.id ?? `f${floor}-${ch}`, x, y });
         const short = (room?.name ?? ch).replace(/^(Candy Corn |Marsh Mellow |Lolly Pop |Butter Scotch |Sugar Rush |Cookie War |Sour |Raisin |Smash |Drunk |Scotch |Licorice |Cube |Sloppy |Ruin Pizza |Time Bomb |Grave )/i, "").trim();
         const accents = [0xff8a3a, 0xffc0d8, 0xff4d7a, 0xe8b84a];
-        this.drawDoor(x, y, short || ch, "room", accents[idx]);
+        this.drawDoor(x, y, short || ch, "room", accents[idx], room ? themeFor(room.id)?.door : undefined);
       }
     });
     if (!this.level.isHub && !this.level.isBoss) {

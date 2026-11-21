@@ -1,4 +1,4 @@
-import { TILE } from "../config";
+import { TILE } from "../config.ts";
 
 export interface LevelDef {
   id: string;
