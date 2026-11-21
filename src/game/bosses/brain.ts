@@ -27,7 +27,8 @@ export interface BossHost {
   open(m: BossMob, ms: number): void;
   pop(x: number, y: number, text: string): void;
   shake(n: number): void;
-  summon(x: number): boolean;
+  /** Spawn a minion on the floor at x (default: a box guy). */
+  summon(x: number, kind?: string): boolean;
   sound(kind: "telegraph" | "fire" | "slam" | "whoosh" | "zap" | "roar"): void;
 }
 
@@ -95,6 +96,16 @@ function warnLine(host: BossHost, x1: number, x2: number, y: number, color: numb
 
 function groundWave(host: BossHost, x: number, dir: number, speed: number, tint: number) {
   host.shot(x, host.floorTop - 15, dir * speed, 0, { tint, w: 38, h: 26, life: 3200, frame: 2 });
+}
+
+/** Bacteria / Void "lights out": darkens the room (not the hero, hazards or telegraphs) for ms. */
+function dimLights(host: BossHost, alpha: number, ms: number) {
+  const cam = host.scene.cameras.main;
+  const r = host.scene.add.rectangle(0, 0, cam.width, cam.height, 0x050308, 0).setOrigin(0, 0).setScrollFactor(0).setDepth(4.6);
+  host.scene.tweens.add({ targets: r, fillAlpha: alpha, duration: 220 });
+  // cleanup is unconditional, so a defeat mid-move never leaves the room dark
+  host.scene.time.delayedCall(ms, () => host.scene.tweens.add({ targets: r, fillAlpha: 0, duration: 260, onComplete: () => r.destroy() }));
+  return r;
 }
 
 /* ---------- movement helpers ---------- */
@@ -591,5 +602,175 @@ const MOVES: Record<string, (c: Ctx) => void> = {
       xs.forEach((x, i) => host.shot(x, top, 0, 520, { tint: tints[i % tints.length], w: 28, h: 28, life: 2400 }));
     });
     after(host, m, c.T + 700, () => finish(host, m, c.a, c.O));
+  },
+
+  /* ---------- Bacteria (Floor 470539758) — phases 1 and 3 ---------- */
+  reach(c) {
+    const { host, m } = c;
+    windup(c, 0xfff2a0, "LONG REACH");
+    const arm = (x: number, delay: number) => {
+      floorMark(host, x, 0xfff2a0, delay + c.T + 250, 80);
+      after(host, m, delay + c.T + 250, () => {
+        m.rig?.release("lunge");
+        host.sound("slam");
+        host.shake(0.3);
+        const top = host.scene.cameras.main.worldView.top;
+        const a = host.scene.add.rectangle(x, top, 30, host.floorTop - top, 0x1a1620).setOrigin(0.5, 0).setStrokeStyle(3, 0xfff2a0).setDepth(7);
+        a.setScale(1, 0.05);
+        host.scene.tweens.add({ targets: a, scaleY: 1, duration: 120, ease: "Cubic.easeIn" });
+        host.hazard(a);
+        host.scene.tweens.add({ targets: a, scaleY: 0, delay: 380, duration: 160, onComplete: () => a.destroy() });
+        m.rig?.burst(x, host.floorTop - 8, 6);
+      });
+    };
+    const tx = clampX(host, host.target().x);
+    arm(tx, 0);
+    if (c.p >= 2) arm(clampX(host, tx + (tx > m.spr.x ? -150 : 150)), 420);
+    after(host, m, c.T + (c.p >= 2 ? 1250 : 820), () => finish(host, m, c.a, c.O));
+  },
+  lights(c) {
+    const { host, m } = c;
+    const side = host.target().x < m.spr.x ? 1 : -1;
+    const dest = clampX(host, host.target().x + side * 160);
+    windup(c, 0xfff2a0, "LIGHTS OUT", 300);
+    const dim = dimLights(host, 0.55, c.T + 1500);
+    void dim;
+    floorMark(host, dest, 0xfff2a0, c.T + 300, 90);
+    c.a.reach = 0;
+    after(host, m, 250, () => {
+      m.rig?.fade(0, 180);
+      host.sound("whoosh");
+    });
+    after(host, m, c.T + 300, () => {
+      body(m).reset(dest, m.spr.y);
+      face(host, m);
+      m.rig?.fade(1, 160);
+      c.a.reach = 52;
+      m.rig?.telegraph(0xfff2a0, 360);
+    });
+    const swipe = (at: number, flip: number) =>
+      after(host, m, at, () => {
+        const d = m.dir * flip;
+        m.rig?.release("lunge");
+        host.sound("whoosh");
+        const w = host.scene.add.rectangle(m.spr.x + d * 26, host.floorTop - 40, 170, 16, 0x221c28).setOrigin(d > 0 ? 0 : 1, 0.5).setStrokeStyle(3, 0xfff2a0).setDepth(7);
+        w.setScale(0.05, 1);
+        host.scene.tweens.add({ targets: w, scaleX: 1, duration: 110, ease: "Back.easeOut" });
+        host.hazard(w);
+        host.scene.tweens.add({ targets: w, scaleX: 0, delay: 260, duration: 120, onComplete: () => w.destroy() });
+      });
+    swipe(c.T + 700, 1);
+    if (c.p >= 3) swipe(c.T + 1120, -1);
+    after(host, m, c.T + (c.p >= 3 ? 1380 : 960), () => finish(host, m, c.a, c.O));
+  },
+  spores(c) {
+    const { host, m } = c;
+    windup(c, 0x9be36a, "SPORE CLOUD");
+    const xs = [clampX(host, m.spr.x - 150), clampX(host, m.spr.x + 150)];
+    xs.forEach((x) => floorMark(host, x, 0x9be36a, c.T, 70));
+    after(host, m, c.T, () => {
+      m.rig?.release("cast");
+      host.sound("roar");
+      for (const x of xs) {
+        const puff = host.scene.add.circle(x, host.floorTop - 26, 22, 0x9be36a, 0.6).setDepth(4.9);
+        host.scene.tweens.add({ targets: puff, scale: 2.4, alpha: 0, duration: 420, onComplete: () => puff.destroy() });
+        host.summon(x, "br-spore");
+      }
+    });
+    after(host, m, c.T + 300, () => finish(host, m, c.a, c.O));
+  },
+  stretch(c) {
+    const { host, m } = c;
+    const y = host.floorTop - 11;
+    const ms = c.T + 200;
+    windup(c, 0xfff2a0, "LEG SWEEP - JUMP!", ms);
+    warnLine(host, 40, host.worldW - 40, y, 0xfff2a0, ms);
+    after(host, m, ms, () => {
+      m.rig?.release("lunge");
+      host.sound("whoosh");
+      host.shake(0.25);
+      const r = host.scene.add.rectangle(m.spr.x, y, 30, 20, 0x1a1620).setStrokeStyle(3, 0xfff2a0).setDepth(7);
+      host.hazard(r);
+      host.scene.tweens.add({ targets: r, width: (host.worldW - 80) * 2, duration: 260, ease: "Cubic.easeOut" });
+      host.scene.tweens.add({ targets: r, alpha: 0, delay: 420, duration: 120, onComplete: () => r.destroy() });
+    });
+    after(host, m, ms + 700, () => finish(host, m, c.a, c.O + 150));
+  },
+  frenzy(c) {
+    const { host, m } = c;
+    windup(c, 0x9be36a, "SPORE RAIN");
+    const px = host.target().x;
+    const gap = Phaser.Math.Between(-1, 1); // one safe lane near you
+    const xs = [-2, -1, 0, 1, 2].filter((i) => i !== gap).map((i) => clampX(host, px + i * 110));
+    xs.forEach((x) => floorMark(host, x, 0x9be36a, c.T + 1300, 60));
+    after(host, m, c.T, () => {
+      m.rig?.release("cast");
+      host.sound("fire");
+      const top = host.scene.cameras.main.worldView.top + 10;
+      xs.forEach((x) => host.shot(x, top, 0, 500, { tint: 0x7dbf3a, w: 28, h: 28, life: 2400 }));
+    });
+    after(host, m, c.T + 700, () => finish(host, m, c.a, c.O));
+  },
+
+  /* ---------- Void (Bacteria's phase 2: the Smiler face) ---------- */
+  voidorbs(c) {
+    const { host, m } = c;
+    windup(c, 0x9a5cff, "VOID ORBS");
+    const volley = (at: number, n: number) => {
+      after(host, m, at, () => {
+        face(host, m);
+        m.rig?.release("cast");
+        host.sound("zap");
+        const t = host.target();
+        const base = Math.atan2(t.y - (m.spr.y - 40), t.x - m.spr.x);
+        for (let i = 0; i < n; i++) {
+          const a = base + (i - (n - 1) / 2) * 0.28;
+          const o = host.shot(m.spr.x, m.spr.y - 40, Math.cos(a) * 220, Math.sin(a) * 220, { tint: 0x3a1460, w: 30, h: 30, life: 3600 });
+          o.setDepth(7.5);
+        }
+      });
+    };
+    volley(c.T, 3);
+    volley(c.T + 900, 4);
+    after(host, m, c.T + 1200, () => finish(host, m, c.a, c.O));
+  },
+  grin(c) {
+    const { host, m } = c;
+    // the lights go out: only the grin, the warning line and you are easy to see
+    const total = c.T + 900 + 1200;
+    dimLights(host, 0.8, total);
+    windup(c, 0xffffff, "WATCH THE GRIN!", c.T + 700);
+    m.rig?.fade(0.12, 250);
+    const g = host.scene.add.graphics().setDepth(7.2);
+    const draw = () => {
+      if (!m.spr.active) return g.destroy();
+      g.clear();
+      const hx = m.spr.x + 4 * m.dir;
+      const hy = m.spr.y - 92;
+      g.fillStyle(0xffffff, 1);
+      g.fillCircle(hx - 7, hy - 6, 4);
+      g.fillCircle(hx + 9, hy - 6, 4);
+      g.slice(hx + 1, hy + 2, 15, Phaser.Math.DegToRad(15), Phaser.Math.DegToRad(165), false);
+      g.fillPath();
+    };
+    const ev = host.scene.time.addEvent({ delay: 30, loop: true, callback: draw });
+    host.scene.time.delayedCall(total, () => {
+      ev.remove();
+      g.destroy();
+    });
+    const y = host.floorTop - 30;
+    after(host, m, 200, () => {
+      face(host, m);
+      warnLine(host, m.dir > 0 ? m.spr.x : 40, m.dir > 0 ? host.worldW - 40 : m.spr.x, y, 0xffffff, c.T + 700);
+    });
+    after(host, m, c.T + 900, () => {
+      m.rig?.release("lunge");
+      host.sound("whoosh");
+      c.a.reach = 60;
+      dash(host, m, 520, 1100, () => {
+        m.rig?.fade(1, 200);
+        finish(host, m, c.a, c.O + 150);
+      });
+    });
   },
 };

@@ -6,8 +6,9 @@ import { LEVEL_THEMES } from "./levelThemes.ts";
 import { FLOORS } from "./world.ts";
 import { LEVEL_SONGS, composeSong, songById, songGain } from "../music/levelSongs.ts";
 
+// every level, plus the one themed hub (Floor 470539758, the Backrooms)
 const levelIds = Object.values(LEVELS)
-  .filter((l) => !l.isHub)
+  .filter((l) => !l.isHub || l.themed)
   .map((l) => l.id);
 const root = new URL("../../../", import.meta.url);
 

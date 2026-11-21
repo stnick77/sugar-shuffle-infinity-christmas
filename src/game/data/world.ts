@@ -199,6 +199,15 @@ export const BOSSES: Record<
     hitWhen: "After a volley, while they are flashing.",
     lore: "Secret extreme boss. Unlock the Admin button on the main menu after both the Good and Bad endings. Power type: Admin. 3 phases, 10 hits each.",
   },
+  // Floor 470539758 (the Backrooms). Phase 2 is "Void": same body, a Smiler face.
+  "br-boss": {
+    name: "Bacteria",
+    sprite: "bacteria",
+    lives: 9,
+    moves: ["Long reach", "Lights out", "Spore cloud", "Void orbs (Void)", "Grin in the dark (Void)", "Leg sweep", "Spore rain"],
+    hitWhen: "After a move, while he is flashing.",
+    lore: "Secret boss of Floor 470539758. Phase 1 and 3: Bacteria. Phase 2: Void.",
+  },
 };
 
 export const COMBOS = {
@@ -234,6 +243,7 @@ export const LORE = [
   { id: "fake-cuboe", name: "The Lore of Fake Candy Cuboe", how: "Attack the Metroid platform in his fight." },
   { id: "warlock", name: "Candy Warlock Backstory", how: "Fall into a pit 20 times." },
   { id: "rift", name: "Universe Rift", how: "Fall into the secret spot at Butter Scotch Summit." },
+  { id: "bacteria", name: "The Lore of Bacteria", how: "Defeat Bacteria on Floor 470539758." },
 ];
 
 export const ENDINGS = [
@@ -243,6 +253,9 @@ export const ENDINGS = [
   { id: "playco", name: "Playco Path", how: "Spare the Candy Warlock: escape the rotting pumpkin without defeating anyone." },
   { id: "omega", name: "Omega Saiyan", how: "As Cubro, burst-kill 40 enemies, then escape the rotting pumpkin." },
   { id: "true", name: "True", how: "Collect every other ending. The Warlock becomes a friend." },
+  // Secret: not needed for True (that list is fixed in PlayScene.finish).
+  { id: "backrooms", name: "Floor 470539758", how: "A secret ending. Some floors are not on the elevator." },
+  { id: "trapped", name: "TrAppEd fOrEvEr", how: "Lose all your lives on Floor 470539758. The hum never stops." },
 ];
 
 /** Codes marked `soon` are saved now; their unlock is not built yet (future update). */

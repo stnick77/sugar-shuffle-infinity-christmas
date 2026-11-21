@@ -48,6 +48,18 @@ export const LEVEL_THEMES: Record<string, LevelTheme> = {
   "f5-boss": { door: "door-boss-warlock", tiles: "tiles-warlock", song: "warlocks-hex" },
   "final-run": { door: "door-pumpkin", tiles: "tiles-pumpkin", song: "escape-the-rot" },
   "admin-warlords": { door: "door-admin", tiles: "tiles-admin", song: "admin-override" },
+  // Floor 470539758, the Backrooms (scripts/art/make-backrooms.py). The hub is the
+  // one themed hub (its door is the EXIT door back to Floor 5).
+  "hub-backrooms": { door: "door-br-exit", tiles: "tiles-br-hub", song: "fluorescent-hum" },
+  "br-0": { door: "door-br-level0", tiles: "tiles-br-level0", song: "yellow-wallpaper-walk" },
+  "br-motion": { door: "door-br-motion", tiles: "tiles-br-motion", song: "conveyor-shuffle" },
+  "br-pool": { door: "door-br-pool", tiles: "tiles-br-pool", song: "chlorine-dream" },
+  "br-cave": { door: "door-br-cave", tiles: "tiles-br-cave", song: "stalactite-drip" },
+  "br-boss": { door: "door-boss-bacteria", tiles: "tiles-br-bacteria", song: "bacteria-stalks" },
+  // the escape chase after Bacteria (its door is the EXIT at the end of the hallway)
+  "br-escape": { door: "door-br-escape", tiles: "tiles-br-escape", song: "red-hallway-run" },
+  // the bright room past the escape, with the big white ESCAPE door
+  "br-heaven": { door: "door-br-heaven", tiles: "tiles-br-heaven", song: "above-the-yellow" },
 };
 
 export function themeFor(levelId: string): LevelTheme | undefined {

@@ -21,6 +21,8 @@ export class BossRig {
   private f = { lift: 0, spin: 0, alpha: 1 };
   private glowColor = 0xffffff;
   private base: number;
+  /** how far the frame bottom hangs under the body (display px) */
+  private drop: number;
   private tintBase: number | undefined;
   /** cursed fakes: dark aura, floating cursed bits, glitch flicker */
   private cursed: { aura: Phaser.GameObjects.Ellipse; bits: Phaser.GameObjects.Particles.ParticleEmitter; nextGlitch: number; glitchUntil: number } | null = null;
@@ -31,9 +33,10 @@ export class BossRig {
   constructor(
     private scene: Phaser.Scene,
     private spr: Phaser.Physics.Arcade.Sprite,
-    opts: { tint?: number; scale?: number; cursed?: boolean } = {},
+    opts: { tint?: number; scale?: number; cursed?: boolean; drop?: number } = {},
   ) {
     this.base = opts.scale ?? 0.75;
+    this.drop = opts.drop ?? 6;
     this.tintBase = opts.tint;
     spr.setVisible(false);
     this.shadow = scene.add.ellipse(spr.x, 0, 74, 14, 0x000000, 0.28).setDepth(4.8);
@@ -77,7 +80,7 @@ export class BossRig {
   private feet() {
     const body = this.spr.body as Phaser.Physics.Arcade.Body | null;
     // frame bottom sits 8 source px (6 display px) under the body; the art's feet are at the body bottom
-    return (body ? body.bottom : this.spr.y + 42) + 6;
+    return (body ? body.bottom : this.spr.y + 42) + this.drop;
   }
 
   /** Called every frame from the scene. */
