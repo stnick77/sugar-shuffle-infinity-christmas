@@ -51,6 +51,77 @@ function beep(freq: number, dur: number, type: OscillatorType, gain = 0.12, slid
   o.stop(ctx.currentTime + dur + 0.02);
 }
 
+/** The intense jumpscare's silence beat: cut the music for `ms`, then bring it back. */
+export function silenceMusic(ms: number) {
+  if (!ctx || !musicBus) return;
+  const was = musicBus.gain.value;
+  const t = ctx.currentTime;
+  musicBus.gain.cancelScheduledValues(t);
+  musicBus.gain.setValueAtTime(was, t);
+  musicBus.gain.linearRampToValueAtTime(0, t + 0.03);
+  musicBus.gain.setValueAtTime(0, t + ms / 1000);
+  musicBus.gain.linearRampToValueAtTime(was, t + ms / 1000 + 0.4);
+}
+
+/**
+ * A loud, distorted screech for the intense jumpscare, made procedurally:
+ * detuned saws + a noise burst through a waveshaper, a sweeping band-pass,
+ * then a brick-wall limiter and a fixed gain cap (never ear-damaging).
+ */
+export function screechIntense(gainCap: number, limitDb: number, dur = 1.0) {
+  if (!ctx || !sfxBus) return;
+  const t = ctx.currentTime;
+  const shaper = ctx.createWaveShaper();
+  const curve = new Float32Array(1024);
+  for (let i = 0; i < curve.length; i++) {
+    const x = (i / (curve.length - 1)) * 2 - 1;
+    curve[i] = Math.tanh(x * 6);
+  }
+  shaper.curve = curve;
+  const band = ctx.createBiquadFilter();
+  band.type = "bandpass";
+  band.Q.value = 2.5;
+  band.frequency.setValueAtTime(700, t);
+  band.frequency.exponentialRampToValueAtTime(2600, t + dur * 0.35);
+  band.frequency.exponentialRampToValueAtTime(900, t + dur);
+  const limiter = ctx.createDynamicsCompressor();
+  limiter.threshold.value = limitDb;
+  limiter.knee.value = 0;
+  limiter.ratio.value = 20;
+  limiter.attack.value = 0.001;
+  limiter.release.value = 0.08;
+  const out = ctx.createGain();
+  out.gain.setValueAtTime(0.0001, t);
+  out.gain.exponentialRampToValueAtTime(gainCap, t + 0.02);
+  out.gain.setValueAtTime(gainCap, t + dur * 0.7);
+  out.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+  shaper.connect(band);
+  band.connect(limiter);
+  limiter.connect(out);
+  out.connect(sfxBus);
+  const pre = ctx.createGain();
+  pre.gain.value = 0.6;
+  pre.connect(shaper);
+  for (const [f, slide] of [[620, 1400], [655, 1300], [930, -300], [140, -40]] as const) {
+    const o = ctx.createOscillator();
+    o.type = "sawtooth";
+    o.frequency.setValueAtTime(f, t);
+    o.frequency.exponentialRampToValueAtTime(Math.max(40, f + slide), t + dur * 0.4);
+    o.frequency.exponentialRampToValueAtTime(Math.max(40, f * 0.7), t + dur);
+    o.connect(pre);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+  }
+  const len = Math.floor(ctx.sampleRate * dur);
+  const buf = ctx.createBuffer(1, len, ctx.sampleRate);
+  const data = buf.getChannelData(0);
+  for (let i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
+  const noise = ctx.createBufferSource();
+  noise.buffer = buf;
+  noise.connect(pre);
+  noise.start(t);
+}
+
 export const sfx = {
   jump: () => beep(420, 0.12, "square", 0.08, 180),
   land: () => beep(140, 0.08, "triangle", 0.1, -40),
@@ -117,6 +188,15 @@ export const sfx = {
     beep(1340, 0.6, "square", 0.035, -500);
     beep(180, 0.8, "sawtooth", 0.06, -60);
     setTimeout(() => beep(1600, 0.35, "sawtooth", 0.04, -900), 160);
+  },
+  // glass cracking (short bright noise ticks)
+  crack: () => {
+    [0, 40, 95].forEach((d, i) => setTimeout(() => beep(2400 - i * 500, 0.05, "square", 0.03, -1500), d));
+  },
+  // wet slime splat
+  splat: () => {
+    beep(160, 0.16, "sine", 0.06, -110);
+    setTimeout(() => beep(90, 0.12, "triangle", 0.04, -40), 30);
   },
   noclip: () => {
     [0, 70, 140, 230, 330].forEach((d, i) => setTimeout(() => beep(120 + i * 37, 0.12, "sawtooth", 0.05, -40), d));

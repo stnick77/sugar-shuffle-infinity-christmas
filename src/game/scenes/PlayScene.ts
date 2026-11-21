@@ -1,4 +1,5 @@
 import { ENTITY_GLITCH, unlockRewardHeroes } from "@/game/backrooms/heroes";
+import { JUMPSCARE, SCREECH_LIMIT_DB, jumpscareTimeline, screechGain } from "@/game/backrooms/jumpscare";
 import * as Phaser from "phaser";
 import { TILE } from "../config";
 import { ARCADE_OVERLAP_BIAS, MAX_FALL_SPEED, canEnterDoor, capFallSpeed, landingFloorTop, shouldLandOnFloor, type Aabb } from "../physics/floors";
@@ -8,7 +9,7 @@ import { ADMIN_BOSS_ID, ADMIN_PHASE_HP, usesCuboeKit } from "../hayden/content";
 import { ADMIN_POWERS, freezeSpeedMul, inFreeze, nextAdminPhase, patternAt, powerAt, powerDue, teleportTarget, type AdminPhase, type AdminPowerId } from "../bosses/adminWarlords";
 import { emitGame } from "../bus";
 import { bootInput, pollGamepad, readActions, readActionsP2, setCoopInput, setInjected } from "../input";
-import { setLevelSong, sfx } from "../audio";
+import { screechIntense, setLevelSong, sfx, silenceMusic } from "../audio";
 import { themeFor } from "../data/levelThemes";
 import { useGame } from "@/store/game-store";
 import { ssi } from "../runtime";
@@ -194,6 +195,9 @@ export class PlayScene extends Phaser.Scene {
   private glitchFlickAt = 0;
   private glitchNextAmbient = 0;
   private entityGlitchAt = 0;
+  /** The intense jumpscare's state (for tests/screenshots). */
+  private scareInfo: { phase: string; splats: number; crack: number; flickers: number } = { phase: "none", splats: 0, crack: -1, flickers: 0 };
+  private scareFace?: Phaser.GameObjects.Image;
 
   constructor() {
     super("play");
@@ -226,6 +230,8 @@ export class PlayScene extends Phaser.Scene {
     this.glitchUntil = 0;
     this.glitchNextAmbient = 0;
     this.entityGlitchAt = 0;
+    this.scareInfo = { phase: "none", splats: 0, crack: -1, flickers: 0 };
+    this.scareFace = undefined;
     if (id === "hub") id = hubIdFor(floor);
     this.levelId = id;
     this.mobs = [];
@@ -316,6 +322,12 @@ export class PlayScene extends Phaser.Scene {
       // the hub uses Bacteria's silhouette for the watcher in the hallways
       sheet("bacteria", "/game/sprites/bacteria.png");
       sheet("bacteria-void", "/game/sprites/bacteria-void.png");
+    }
+    if (room.chase) {
+      // the intense jumpscare: Smiler close-up, slime splats, cracked glass (all drawn in code)
+      s("jumpscare-face", "/game/sprites/jumpscare-face.png");
+      if (!this.textures.exists("goo-splats")) this.load.spritesheet("goo-splats", "/game/sprites/goo-splats.png", { frameWidth: 256, frameHeight: 256 });
+      if (!this.textures.exists("glass-crack")) this.load.spritesheet("glass-crack", "/game/sprites/glass-crack.png", { frameWidth: 640, frameHeight: 360 });
     }
     if (room.bossId === "f3-boss" || room.bossId === "f4-boss") {
       // cursed Fake Candy Cuboe / Cubro (own sheets, same frame layout as the heroes)
@@ -1089,62 +1101,133 @@ export class PlayScene extends Phaser.Scene {
   }
 
   /**
-   * Bacteria's face zooms up to fill the screen: shake, red flash and a short screech
-   * (about 1 s), then a fade to the retry. Off in Options/Pause ("Jumpscares") = just a red flash.
+   * The intense jumpscare (see src/game/backrooms/jumpscare.ts for the kid-safe numbers):
+   * a silence beat, Bacteria/Void's Smiler face lunges full screen, heavy shake, red/black
+   * flicker (<= 3 Hz, no white), a capped distorted screech, green-black slime splats,
+   * cracked glass spreading from the impact, then a short glitch-out and a fade.
+   * Off in Options/Pause ("Jumpscares") = just a soft red tint and CAUGHT!.
    */
   private jumpscare(done: () => void) {
     const cam = this.cameras.main;
     const settings = useGame.getState().save.settings;
-    if (settings.jumpscares === false) {
+    if (settings.jumpscares === false || !this.textures.exists("jumpscare-face")) {
       cam.flash(220, 200, 20, 20);
       sfx.hurt();
       this.pop(this.player.x, this.player.y - 60, "CAUGHT!");
       this.time.delayedCall(600, done);
       return;
     }
-    const cx = cam.width / 2;
-    const cy = cam.height / 2;
-    const dim = this.add.rectangle(0, 0, cam.width, cam.height, 0x000000, 0.92).setOrigin(0, 0).setScrollFactor(0).setDepth(80);
-    const face = this.add.container(cx, cy).setScrollFactor(0).setDepth(81);
-    const g = this.add.graphics();
-    // soft red haze around a black void head
-    for (let k = 4; k >= 1; k--) g.fillStyle(0xb01010, 0.07).fillEllipse(0, 0, 300 + k * 26, 380 + k * 26);
-    g.fillStyle(0x050304, 1).fillEllipse(0, 0, 300, 380);
-    // glowing eyes (soft rings of light, then the eye)
-    for (const sx of [-62, 62]) {
-      for (let k = 4; k >= 1; k--) g.fillStyle(0xfff2b0, 0.08).fillEllipse(sx, -60, 62 + k * 12, 40 + k * 10);
-      g.fillStyle(0xffffff, 1).fillEllipse(sx, -60, 62, 40);
-      g.fillStyle(0x200808, 1).fillCircle(sx, -58, 9);
-    }
-    // the big glowing grin
-    for (let k = 3; k >= 1; k--) {
-      g.lineStyle(k * 7, 0xfff6d0, 0.1);
-      g.strokePoints([{ x: -110, y: 40 }, { x: 110, y: 40 }, { x: 70, y: 100 }, { x: -70, y: 100 }], true);
-    }
-    g.fillStyle(0xffffff, 1);
-    g.beginPath();
-    g.moveTo(-110, 40);
-    g.lineTo(110, 40);
-    g.lineTo(70, 100);
-    g.lineTo(-70, 100);
-    g.closePath();
-    g.fillPath();
-    g.lineStyle(4, 0x1a0606, 1);
-    for (let k = -4; k <= 4; k++) g.lineBetween(k * 22, 42, k * 17, 98);
-    g.lineBetween(-100, 70, 100, 70);
-    face.add(g);
-    face.setScale(0.12);
-    this.tweens.add({ targets: face, scale: 1.9, duration: 360, ease: "Back.easeOut" });
-    this.tweens.add({ targets: face, x: { from: cx - 6, to: cx + 6 }, duration: 40, yoyo: true, repeat: 12, delay: 360 });
-    if (settings.shake) cam.shake(800, 0.02);
-    cam.flash(260, 255, 30, 30);
-    sfx.screech();
-    this.time.delayedCall(820, () => cam.fadeOut(200, 0, 0, 0));
-    this.time.delayedCall(1040, () => {
-      dim.destroy();
-      face.destroy();
-      cam.fadeIn(260, 0, 0, 0);
-      done();
+    const J = JUMPSCARE;
+    const tl = jumpscareTimeline();
+    const W = cam.width;
+    const H = cam.height;
+    const cx = W / 2;
+    const cy = H / 2;
+    const parts: Phaser.GameObjects.GameObject[] = [];
+    const add = <T extends Phaser.GameObjects.GameObject>(o: T) => (parts.push(o), o);
+    this.scareInfo = { phase: "silence", splats: 0, crack: -1, flickers: 0 };
+    // 0) silence beat: the music cuts out and the world holds still
+    silenceMusic(tl.glitch);
+    const hush = add(this.add.rectangle(0, 0, W, H, 0x000000, 0).setOrigin(0, 0).setScrollFactor(0).setDepth(80));
+    this.tweens.add({ targets: hush, fillAlpha: 0.35, duration: J.silenceMs });
+    // 1) the lunge
+    this.time.delayedCall(tl.lunge, () => {
+      this.scareInfo.phase = "lunge";
+      const dim = add(this.add.rectangle(0, 0, W, H, 0x050208, 0.94).setOrigin(0, 0).setScrollFactor(0).setDepth(80.5));
+      void dim;
+      const cover = (Math.max(W, H) / 768) * 1.18;
+      const face = add(this.add.image(cx, cy + 20, "jumpscare-face").setScrollFactor(0).setDepth(81).setScale(cover * 0.08));
+      face.setData("cover", cover);
+      face.setData("lunge", this.tweens.add({ targets: face, scale: cover, y: cy, duration: J.lungeMs, ease: "Cubic.easeIn" }));
+      this.scareFace = face;
+    });
+    // 2) impact
+    this.time.delayedCall(tl.impact, () => {
+      this.scareInfo.phase = "impact";
+      if (settings.shake) cam.shake(J.holdMs + J.glitchOutMs, J.shake);
+      screechIntense(screechGain(settings.sfx ?? 0.8), SCREECH_LIMIT_DB, (J.holdMs + J.glitchOutMs) / 1000);
+      const face = this.scareFace;
+      if (face) {
+        // land the lunge exactly (slow frames must not leave it small), then pulse
+        (face.getData("lunge") as Phaser.Tweens.Tween | undefined)?.stop();
+        const cover = face.getData("cover") as number;
+        face.setScale(cover).setPosition(cx, cy);
+        this.tweens.add({ targets: face, scale: cover * 1.06, duration: 60, yoyo: true, repeat: 5 });
+      }
+      // red / black flicker, each colour held flickerStepMs (<= 3 full cycles a second)
+      const flick = add(this.add.rectangle(0, 0, W, H, J.flickerColors[0], J.flickerAlpha[0]).setOrigin(0, 0).setScrollFactor(0).setDepth(82).setBlendMode(Phaser.BlendModes.NORMAL));
+      let k = 0;
+      this.time.addEvent({
+        delay: J.flickerStepMs,
+        repeat: Math.floor(J.holdMs / J.flickerStepMs) - 1,
+        callback: () => {
+          k++;
+          this.scareInfo.flickers = k;
+          if (!flick.active) return;
+          flick.setFillStyle(J.flickerColors[k % 2], J.flickerAlpha[k % 2]);
+        },
+      });
+      // cracked glass spreading out from the impact point
+      if (this.textures.exists("glass-crack")) {
+        const crack = add(this.add.image(cx, cy, "glass-crack", 0).setScrollFactor(0).setDepth(84).setDisplaySize(W, H));
+        this.scareInfo.crack = 0;
+        sfx.crack();
+        for (let st = 1; st < J.crackStages; st++)
+          this.time.delayedCall(st * J.crackStepMs, () => {
+            if (!crack.active) return;
+            crack.setFrame(st);
+            this.scareInfo.crack = st;
+          });
+      }
+      // green-black Bacteria slime splats that slide down the glass
+      if (this.textures.exists("goo-splats")) {
+        for (let i = 0; i < J.splats; i++) {
+          this.time.delayedCall(40 + i * 55, () => {
+            const x = Phaser.Math.Between(Math.round(W * 0.08), Math.round(W * 0.92));
+            const y = Phaser.Math.Between(Math.round(H * 0.06), Math.round(H * 0.7));
+            const sz = Phaser.Math.Between(150, 280) * (W / 1280);
+            const g = add(this.add.image(x, y, "goo-splats", i % 4).setScrollFactor(0).setDepth(83).setAngle(Phaser.Math.Between(-25, 25)));
+            g.setDisplaySize(sz * 0.2, sz * 0.2);
+            this.tweens.add({ targets: g, displayWidth: sz, displayHeight: sz, duration: 110, ease: "Back.easeOut" });
+            this.tweens.add({ targets: g, y: y + Phaser.Math.Between(40, 90), duration: J.holdMs, delay: 120, ease: "Sine.easeIn" });
+            this.scareInfo.splats = i + 1;
+            if (i % 2 === 0) sfx.splat();
+          });
+        }
+      }
+    });
+    // 3) glitch-out: the whole scare tears into RGB-split slices for a moment
+    this.time.delayedCall(tl.glitch, () => {
+      this.scareInfo.phase = "glitch";
+      const face = this.scareFace;
+      if (face?.active) {
+        const ghost = (tint: number, dx: number) =>
+          add(this.add.image(face.x + dx, face.y, "jumpscare-face").setScrollFactor(0).setDepth(81.5).setScale(face.scale).setTint(tint).setAlpha(0.6).setBlendMode(Phaser.BlendModes.ADD));
+        const r = ghost(0xff2040, -14);
+        const c = ghost(0x30e0ff, 14);
+        this.tweens.add({ targets: [r, c], x: `+=${Phaser.Math.Between(-20, 20)}`, duration: 60, yoyo: true, repeat: 2 });
+        for (let i = 0; i < 6; i++) {
+          const y = Phaser.Math.Between(0, H);
+          const bar = add(this.add.rectangle(0, y, W, Phaser.Math.Between(8, 34), 0x000000, 0.85).setOrigin(0, 0.5).setScrollFactor(0).setDepth(85));
+          this.tweens.add({ targets: bar, x: Phaser.Math.Between(-60, 60), duration: 70, yoyo: true, repeat: 1 });
+        }
+        this.tweens.add({ targets: face, x: face.x + 24, duration: 50, yoyo: true, repeat: 2 });
+      }
+      sfx.glitch();
+      this.time.delayedCall(110, () => sfx.glitch());
+      // 4) chained (not absolute) so a slow frame can't skip the glitch-out: fade, clean up, carry on
+      this.time.delayedCall(J.glitchOutMs, () => {
+        this.scareInfo.phase = "fade";
+        cam.fadeOut(J.fadeMs, 0, 0, 0);
+        this.time.delayedCall(J.fadeMs, () => {
+          parts.forEach((o) => o.destroy());
+          this.scareFace = undefined;
+          this.scareInfo.phase = "done";
+          cam.resetFX();
+          cam.fadeIn(260, 0, 0, 0);
+          done();
+        });
+      });
     });
   }
 
@@ -3300,6 +3383,7 @@ export class PlayScene extends Phaser.Scene {
           chaser: this.chaser ? { x: this.chaser.x, wait: this.chaseWait } : null,
           catches: this.catches,
           scaring: this.scaring,
+          scare: this.scareInfo,
           glitch: { level: glitchLevel(Math.max(0, this.hp), this.maxHp), on: this.glitchOn(), burst: this.time.now < this.glitchUntil, shown: !!this.glitchFx?.ghosts[0]?.visible },
           swimming: this.inWater(this.player),
     };
