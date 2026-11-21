@@ -366,7 +366,8 @@ export const LEVELS: Record<string, LevelDef> = {
   }),
   "f3-1": pack("f3-1", "Raisin Ruins", RUINS, { bg: "/game/bg/raisin-ruins.jpg", ground: "marsh" }),
   "f3-2": pack("f3-2", "Smash City", CITY, { bg: "/game/bg/smash-city.jpg", ground: "marsh" }),
-  "f3-3": pack("f3-3", "Drunk Saloon", SALOON, { bg: "/game/bg/desert.jpg", ground: "marsh" }),
+  // Was /game/bg/desert.jpg (still in public/game/bg); party scene from scripts/art/make-saloon-party.py.
+  "f3-3": pack("f3-3", "Drunk Saloon", SALOON, { bg: "/game/bg/saloon-party.jpg", ground: "marsh" }),
   "f3-4": pack("f3-4", "Scotch T.V.", TV, { bg: "/game/bg/scotch-tv.jpg", ground: "marsh" }),
   "f3-boss": pack("f3-boss", "Fake Candy Cubro", ARENA, { isBoss: true, bossId: "f3-boss", pizzaTime: 0, bg: "/game/bg/boss-fake-cubro.jpg" }),
   "f4-1": pack("f4-1", "Licorice Landfill", LANDFILL, { bg: "/game/bg/landfill.jpg", tint: 0xb8d4c0 }),

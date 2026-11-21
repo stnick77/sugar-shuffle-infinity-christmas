@@ -23,7 +23,8 @@ In the game, `src/game/bosses/rig.ts` adds a dark aura, floating cursed bits and
 ## Hayden's drawings (November 2026)
 
 `make-hayden-sprites.py` draws the small candle icon, then runs
-`make-candy-cube.py`, `make-admin-warlords.py` and `make-credits-art.py`.
+`make-candy-cube.py`, `make-admin-warlords.py`, `make-credits-art.py` and
+`make-saloon-party.py`.
 
 `make-admin-warlords.py` redraws Hayden's three Admin Warlords (one sheet per
 phase, `warlord-1/2/3.png`), the Admin orb and the group portrait in the same
@@ -36,6 +37,17 @@ stay in `assets/hayden/cutouts/` as reference.
 straight from their in-game sheets (cuboe-jump arms-up frame, cubro-idle
 frame mirrored), into `public/game/sprites/credits-cuboe-cubro.png`. His
 photo stays in `assets/hayden/originals/credits.jpg`.
+
+`make-saloon-party.py` draws the Drunk Saloon (level f3-3) background: a
+bar party with every boss (Choco Man, the Outlaw behind the bar, the Candy
+Warlock, Fake Cuboe, Fake Cubro and all three Admin Warlords) cut from their
+in-game sprite frames, tilted and wobbly, in party hats with "hic!" bubbles,
+dizzy swirls, root-beer mugs, string lights, a disco ball and streamers. It is
+composed in the 3456x800 space the game stretches this level's background to
+(only the left ~1780px is ever on camera at scroll factor 0.22), darkened so
+platforms stay readable, then saved as `public/game/bg/saloon-party.jpg`
+(1792x1008, same as the other backgrounds). The old `desert.jpg` stays in
+`public/game/bg/`.
 
 `make-candy-cube.py` draws Candy Cube's in-game idle/run/jump/attack
 sheets and portrait, plus the elf-hat costume, in the same painted style

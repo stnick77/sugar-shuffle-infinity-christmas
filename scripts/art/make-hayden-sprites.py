@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 Build Hayden's in-game art: the code-drawn candle icon here, then
-make-candy-cube.py, make-admin-warlords.py and make-credits-art.py.
+make-candy-cube.py, make-admin-warlords.py, make-credits-art.py and
+make-saloon-party.py.
 
 Candy Cube's in-game sheets and the elf hat are drawn by
 make-candy-cube.py (same painted style as Cuboe/Cubro). This script
@@ -57,6 +58,8 @@ def main():
     subprocess.check_call([sys.executable, str(Path(__file__).with_name("make-admin-warlords.py"))])
     # Credits "Thanks for playing!" picture in the same style
     subprocess.check_call([sys.executable, str(Path(__file__).with_name("make-credits-art.py"))])
+    # Drunk Saloon party background (uses the boss + warlord sheets above)
+    subprocess.check_call([sys.executable, str(Path(__file__).with_name("make-saloon-party.py"))])
 
 
 if __name__ == "__main__":
