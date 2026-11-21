@@ -75,3 +75,9 @@
     background-position: 40px 260px;
   }
 }
+
+/* Keyboard / gamepad menu highlight (use-menu-nav). Disabled (locked) rows show it too. */
+[data-nav-active] {
+  outline: 3px solid var(--color-mint, #7fffd4);
+  outline-offset: 3px;
+}

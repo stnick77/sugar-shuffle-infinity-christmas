@@ -2,20 +2,17 @@
  * UI for Sugar Shuffle Infinity + DLC: 'Tis the Seasones.
  * Everything renders nothing (or just the DLC button) while the DLC is off.
  */
-import { useEffect, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 import { Music, Snowflake, Users } from "lucide-react";
+import { useMenuNav } from "./use-menu-nav";
 import { useGame } from "@/store/game-store";
 import { sfx, unlockAudio } from "@/game/audio";
 import { HEROES, type HeroId } from "@/game/data/world";
 import {
   COLLECTABLES,
-  DECEMBER_GIFT_ID,
   DLC_TITLE,
   HOME_NAME,
-  cosmeticById,
   cosmeticsFor,
-  dlcNow,
-  isDecember,
   isEquipped,
   isOwned,
   toggleDlc,
@@ -38,7 +35,16 @@ export function useXmasOn() {
 }
 
 /** One 128px frame of a 2x2 sprite sheet as a CSS background. */
-export function XIcon({ sheet, frame, size = 40 }: { sheet: "xmas-pickups" | "xmas-cosmetics"; frame: number; size?: number }) {
+export function XIcon({
+  sheet,
+  frame,
+  size = 40,
+}: {
+  sheet: "xmas-pickups" | "xmas-cosmetics" | "hayden-cosmetics";
+  frame: number;
+  size?: number;
+}) {
+  const twoByOne = sheet === "hayden-cosmetics";
   return (
     <span
       aria-hidden
@@ -47,8 +53,10 @@ export function XIcon({ sheet, frame, size = 40 }: { sheet: "xmas-pickups" | "xm
         width: size,
         height: size,
         backgroundImage: `url('/game/sprites/${sheet}.png')`,
-        backgroundSize: "200% 200%",
-        backgroundPosition: `${frame % 2 ? "100%" : "0%"} ${frame >= 2 ? "100%" : "0%"}`,
+        backgroundSize: twoByOne ? "200% 100%" : "200% 200%",
+        backgroundPosition: twoByOne
+          ? `${frame % 2 ? "100%" : "0%"} 0%`
+          : `${frame % 2 ? "100%" : "0%"} ${frame >= 2 ? "100%" : "0%"}`,
       }}
     />
   );
@@ -151,7 +159,7 @@ export function XmasCloset() {
     <div className="mt-4 flex flex-col gap-3" data-testid="xmas-closet">
       <h3 className="font-display text-2xl">Christmas closet</h3>
       <p className="text-sm text-cream-dim">{DLC_TITLE} cosmetics. Equip them here, they show up as soon as you close the station.</p>
-      {(["cuboe", "cubro"] as HeroId[]).map((hero) => (
+      {(["cuboe", "cubro", "candy-cube"] as HeroId[]).map((hero) => (
         <div key={hero}>
           <p className="mb-2 text-xs font-extrabold uppercase tracking-widest text-candy">{HEROES[hero].name}</p>
           <ul className="flex flex-col gap-2">
@@ -187,14 +195,62 @@ export function CollectableTally() {
 }
 
 /** DLC options menu: Christmas music, song picker, co-op, home, December gift. */
+/** Options: the Floor 470539758 chase jumpscare can be switched off (default on). */
+function JumpscareToggle() {
+  const settings = useGame((s) => s.save.settings);
+  const persist = useGame((s) => s.persist);
+  const on = settings.jumpscares !== false;
+  return (
+    <section className="flex items-center justify-between gap-3 rounded-2xl border border-cream/10 p-3">
+      <div>
+        <p className="font-display text-xl">Jumpscares</p>
+        <p className="text-xs text-cream-dim">When Bacteria catches you in the escape chase. Off = just a red flash.</p>
+      </div>
+      <XBtn
+        tone={on ? "solid" : "ghost"}
+        onClick={() => {
+          sfx.ui();
+          persist({ settings: { ...settings, jumpscares: !on } });
+        }}
+      >
+        {on ? "On" : "Off"}
+      </XBtn>
+    </section>
+  );
+}
+
+/** Options: the hero's damage glitch on Floor 470539758 (reduce motion). Default on. */
+function GlitchToggle() {
+  const settings = useGame((s) => s.save.settings);
+  const persist = useGame((s) => s.persist);
+  const on = settings.glitch !== false;
+  return (
+    <section className="flex items-center justify-between gap-3 rounded-2xl border border-cream/10 p-3">
+      <div>
+        <p className="font-display text-xl">Character glitch</p>
+        <p className="text-xs text-cream-dim">Your hero glitches when hurt in the Backrooms. Off = reduce motion.</p>
+      </div>
+      <XBtn
+        tone={on ? "solid" : "ghost"}
+        onClick={() => {
+          sfx.ui();
+          persist({ settings: { ...settings, glitch: !on } });
+        }}
+      >
+        {on ? "On" : "Off"}
+      </XBtn>
+    </section>
+  );
+}
+
 export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; onHome: () => void; inGame: boolean }) {
   const x = useGame((s) => s.save.dlc.xmas);
   const [, force] = useState(0);
+  const nav = useRef<HTMLDivElement>(null);
+  useMenuNav(nav);
   useEffect(() => {
     void loadLicensedManifest().then(() => force((n) => n + 1));
   }, []);
-  const now = dlcNow();
-  const gift = cosmeticById(DECEMBER_GIFT_ID)!;
   const pick = (track: string) => {
     sfx.ui();
     setXmas((s) => ({ ...s, track, music: true }));
@@ -216,7 +272,7 @@ export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; 
     </button>
   );
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto bg-ink px-4 py-16" data-testid="xmas-options">
+    <div ref={nav} className="absolute inset-0 z-30 overflow-y-auto bg-ink px-4 py-16" data-testid="xmas-options">
       <div className="mx-auto flex w-full max-w-lg flex-col gap-3">
         <h2 className="font-display text-4xl">Options</h2>
         <p className="text-sm text-cream-dim">DLC: {DLC_TITLE}</p>
@@ -261,6 +317,9 @@ export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; 
           </div>
         </section>
 
+        <JumpscareToggle />
+        <GlitchToggle />
+
         <section className="flex items-center justify-between gap-3 rounded-2xl border border-cream/10 p-3">
           <div>
             <p className="flex items-center gap-2 font-display text-xl">
@@ -288,17 +347,13 @@ export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; 
         </section>
 
         <section className="flex items-center gap-3 rounded-2xl border border-cream/10 p-3">
-          <XIcon sheet="xmas-cosmetics" frame={3} size={44} />
+          <XIcon sheet="hayden-cosmetics" frame={0} size={44} />
           <div className="flex-1">
             <p className="flex items-center gap-2 font-display text-xl">
-              <Snowflake className="size-5" /> December gift
+              <Snowflake className="size-5" /> Candy Cube
             </p>
             <p className="text-xs text-cream-dim" data-testid="december-status">
-              {isOwned(x, gift.id)
-                ? `Unlocked: ${gift.name}. Equip it at the pumpkin station.`
-                : isDecember(now)
-                  ? `It's December! ${gift.name} unlocks now.`
-                  : `Play in December to get a free cosmetic (${gift.name}).`}
+              Hayden&apos;s Christmas character replaced the Candy Cane Scarf. Pick Candy Cube on the character select, then equip the Elf costume and Candle aura at the pumpkin station.
             </p>
           </div>
         </section>

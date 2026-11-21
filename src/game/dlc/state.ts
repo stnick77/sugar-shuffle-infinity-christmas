@@ -1,5 +1,5 @@
 import { useGame } from "@/store/game-store";
-import { claimDecemberGift, cosmeticById, dlcNow, type XmasSave } from "./logic";
+import { claimDecemberGift, dlcNow, type XmasSave } from "./logic";
 
 /** Current DLC save slice. */
 export function xmas(): XmasSave {
@@ -17,11 +17,10 @@ export function setXmas(next: XmasSave | ((s: XmasSave) => XmasSave)) {
   st.persist({ dlc: { ...st.save.dlc, xmas: val } });
 }
 
-/** Hand out the December cosmetic if it's due. Returns a toast message or "". */
+/** Stamp the (retired) December gift year if due. Returns a toast or "". */
 export function checkDecemberGift(): string {
-  const { state, granted, firstTime } = claimDecemberGift(xmas(), dlcNow());
+  const { state, granted } = claimDecemberGift(xmas(), dlcNow());
+  if (state !== xmas()) setXmas(state);
   if (!granted) return "";
-  setXmas(state);
-  const name = cosmeticById("candy-cane-scarf")?.name ?? "a cosmetic";
-  return firstTime ? `Merry December! Free cosmetic: ${name}` : `Merry December! ${name} is still yours`;
+  return "";
 }

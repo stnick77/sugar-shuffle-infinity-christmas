@@ -1,8 +1,15 @@
+import { levelSongPlaying, startLevelSong, stopLevelSong } from "./music/levelMusic.ts";
+
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
 let sfxBus: GainNode | null = null;
 let musicBus: GainNode | null = null;
 let musicTimer: number | null = null;
+/** Per-level song id (src/game/music/levelSongs.ts); null = the shared hub/menu loop. */
+let levelSong: string | null = null;
+let musicRunning = false;
+/** True while the DLC music hook owns the music (level songs then wait in the wings). */
+let hookPlaying = false;
 
 /** Create/resume the audio context. Pass the saved volumes so a muted save stays muted. */
 export function unlockAudio(prefs?: { sfx: number; music: number }) {
@@ -88,6 +95,32 @@ export const sfx = {
     beep(90, 0.45, "sawtooth", 0.12, 60);
     beep(140, 0.4, "square", 0.06, -50);
   },
+  // Floor 470539758: fluorescent-light buzz (and the noclip glitch)
+  buzz: () => {
+    beep(120, 0.22, "sawtooth", 0.035, 4);
+    beep(240, 0.18, "square", 0.012, -6);
+  },
+  // the TrAppEd fOrEvEr ending: a low, uneasy fluorescent drone
+  hum: () => {
+    beep(60, 2.4, "sawtooth", 0.035, 2);
+    beep(120.6, 2.4, "triangle", 0.03, -1);
+    beep(181, 1.6, "sine", 0.015, 3);
+  },
+  // the hero glitching on Floor 470539758: a tiny digital blip
+  glitch: () => {
+    beep(1800 + Math.random() * 900, 0.05, "square", 0.025, -1200);
+    setTimeout(() => beep(300 + Math.random() * 200, 0.04, "square", 0.02, 400), 45);
+  },
+  // escape-chase jumpscare: a short screech (volume-capped well under the boss roar peak)
+  screech: () => {
+    beep(900, 0.7, "sawtooth", 0.07, 900);
+    beep(1340, 0.6, "square", 0.035, -500);
+    beep(180, 0.8, "sawtooth", 0.06, -60);
+    setTimeout(() => beep(1600, 0.35, "sawtooth", 0.04, -900), 160);
+  },
+  noclip: () => {
+    [0, 70, 140, 230, 330].forEach((d, i) => setTimeout(() => beep(120 + i * 37, 0.12, "sawtooth", 0.05, -40), d));
+  },
 };
 
 /**
@@ -102,10 +135,24 @@ export function setMusicHook(hook: MusicHook | null) {
   musicHook = hook;
 }
 
+/** Pick the level's own song (or null for the shared loop); restarts music if it is playing. */
+export function setLevelSong(id: string | null) {
+  if (id === levelSong) return;
+  levelSong = id;
+  if (musicRunning && !hookPlaying) startMusic();
+}
+
+export function currentLevelSong() {
+  return levelSong;
+}
+
 export function startMusic() {
   if (!ctx || !musicBus) return;
   stopMusic();
-  if (musicHook?.start(ctx, musicBus)) return;
+  musicRunning = true;
+  hookPlaying = !!musicHook?.start(ctx, musicBus);
+  if (hookPlaying) return;
+  if (levelSong && startLevelSong(ctx, musicBus, levelSong)) return;
   const notes = [196, 247, 294, 330, 392, 330, 294, 247];
   let i = 0;
   const tick = () => {
@@ -127,7 +174,9 @@ export function startMusic() {
 }
 
 export function stopMusic() {
+  musicRunning = false;
   musicHook?.stop();
+  stopLevelSong();
   if (musicTimer != null) {
     clearTimeout(musicTimer);
     musicTimer = null;
@@ -135,6 +184,7 @@ export function stopMusic() {
 }
 
 if (typeof window !== "undefined") {
+  (window as unknown as { __ssiAudio?: unknown }).__ssiAudio = { levelSong: () => levelSongPlaying(), wanted: () => levelSong };
   document.addEventListener("visibilitychange", () => {
     if (document.visibilityState === "visible") void ctx?.resume();
   });

@@ -15,13 +15,13 @@ export interface SaveData {
   lore: string[];
   endings: string[];
   promo: string[];
-  combos: { cuboe: string[]; cubro: string[] };
+  combos: { cuboe: string[]; cubro: string[]; "candy-cube": string[] };
   pits: number;
   saiyanKills: number;
   minigames: Record<string, Rank>;
   /** One-time grants already collected (hub Candy Bux spots, treasures). */
   claimed: string[];
-  settings: { sfx: number; music: number; shake: boolean };
+  settings: { sfx: number; music: number; shake: boolean; jumpscares: boolean; glitch: boolean };
   /** 'Tis the Seasones DLC. Inert unless dlc.xmas.enabled. */
   dlc: { xmas: XmasSave };
 }
@@ -39,20 +39,27 @@ const DEFAULTS: SaveData = {
   lore: [],
   endings: [],
   promo: [],
-  combos: { cuboe: [], cubro: [] },
+  combos: { cuboe: [], cubro: [], "candy-cube": [] },
   pits: 0,
   saiyanKills: 0,
   minigames: {},
   claimed: [],
-  settings: { sfx: 0.8, music: 0.45, shake: true },
+  settings: { sfx: 0.8, music: 0.45, shake: true, jumpscares: true, glitch: true },
   dlc: { xmas: XMAS_DEFAULTS },
 };
 
 function migrate(raw: SaveData): SaveData {
+  const hero = raw.hero === "candy-cube" || raw.hero === "cuboe" || raw.hero === "cubro" ? raw.hero : DEFAULTS.hero;
   return {
     ...DEFAULTS,
     ...raw,
     version: SAVE_VERSION,
+    hero,
+    combos: {
+      cuboe: raw.combos?.cuboe ?? [],
+      cubro: raw.combos?.cubro ?? [],
+      "candy-cube": raw.combos?.["candy-cube"] ?? [],
+    },
     settings: { ...DEFAULTS.settings, ...raw.settings },
     dlc: { ...raw.dlc, xmas: normalizeXmas(raw.dlc?.xmas) },
   };

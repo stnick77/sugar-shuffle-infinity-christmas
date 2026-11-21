@@ -1,4 +1,4 @@
-export type HeroId = "cuboe" | "cubro";
+export type HeroId = "cuboe" | "cubro" | "candy-cube";
 export type Rank = "P" | "S" | "A" | "B" | "C" | "D" | "F";
 
 export const HEROES: Record<
@@ -7,6 +7,12 @@ export const HEROES: Record<
     name: string;
     tag: string;
     lives: number;
+    /** Hit points per life. Defaults to `lives` when omitted (Cuboe / Cubro). */
+    hp?: number;
+    /** Walk/run speed relative to Cuboe's base (260 / 480). */
+    speed?: number;
+    /** Only offered on the character select screen when the Christmas DLC is on. */
+    dlc?: boolean;
     control: string;
     blurb: string;
     color: string;
@@ -30,6 +36,18 @@ export const HEROES: Record<
     blurb: "Chocolate cube in visor shades. Faster mach run, bounce jump, and Super Saiyan Burst.",
     color: "#c47a3a",
     portrait: "/game/sprites/cubro-portrait.png",
+  },
+  "candy-cube": {
+    name: "Candy Cube",
+    tag: "Hard",
+    lives: 9,
+    hp: 6,
+    speed: 0.9,
+    dlc: true,
+    control: "Punch, shield, air stall — at Hard pace",
+    blurb: "Hayden's Christmas cube: red and white stripes, swirl eyes, and a harder fight. HP 6, 9 lives, a little slower than Cuboe.",
+    color: "#e11d2e",
+    portrait: "/game/sprites/candy-cube-portrait.png",
   },
 };
 
@@ -173,10 +191,34 @@ export const BOSSES: Record<
     hitWhen: "After a ray, while the crown flashes.",
     lore: "Fall into a pit 20 times in the campaign to unlock his backstory.",
   },
+  "admin-warlords": {
+    name: "Admin Warlords",
+    sprite: "warlord-1",
+    lives: 10,
+    moves: ["Admin orbs", "Hand volleys", "Phase rush"],
+    hitWhen: "After a volley, while they are flashing.",
+    lore: "Secret extreme boss. Unlock the Admin button on the main menu after both the Good and Bad endings. Power type: Admin. 3 phases, 10 hits each.",
+  },
+  // Floor 470539758 (the Backrooms). Phase 2 is "Void": same body, a Smiler face.
+  "br-boss": {
+    name: "Bacteria",
+    sprite: "bacteria",
+    lives: 9,
+    moves: ["Long reach", "Lights out", "Spore cloud", "Void orbs (Void)", "Grin in the dark (Void)", "Leg sweep", "Spore rain"],
+    hitWhen: "After a move, while he is flashing.",
+    lore: "Secret boss of Floor 470539758. Phase 1 and 3: Bacteria. Phase 2: Void.",
+  },
 };
 
 export const COMBOS = {
   cuboe: [
+    { id: "aeraste", name: "Aeraste", input: "Jump on an enemy", desc: "Stomp to bounce-kill." },
+    { id: "laser", name: "Spinning Laser", input: "J in the air (35 meter)", desc: "Lasers spin in all directions." },
+    { id: "shield", name: "Forward Shield", input: "Q (20 meter)", desc: "Protective shield for 5 seconds." },
+    { id: "blackhole", name: "Black Hole", input: "Up + Q (40 meter)", desc: "Pulls enemies in." },
+    { id: "beams", name: "Two-Side Energy Beam", input: "Up + J (30 meter)", desc: "Fires beams both ways." },
+  ],
+  "candy-cube": [
     { id: "aeraste", name: "Aeraste", input: "Jump on an enemy", desc: "Stomp to bounce-kill." },
     { id: "laser", name: "Spinning Laser", input: "J in the air (35 meter)", desc: "Lasers spin in all directions." },
     { id: "shield", name: "Forward Shield", input: "Q (20 meter)", desc: "Protective shield for 5 seconds." },
@@ -201,6 +243,7 @@ export const LORE = [
   { id: "fake-cuboe", name: "The Lore of Fake Candy Cuboe", how: "Attack the Metroid platform in his fight." },
   { id: "warlock", name: "Candy Warlock Backstory", how: "Fall into a pit 20 times." },
   { id: "rift", name: "Universe Rift", how: "Fall into the secret spot at Butter Scotch Summit." },
+  { id: "bacteria", name: "The Lore of Bacteria", how: "Defeat Bacteria on Floor 470539758." },
 ];
 
 export const ENDINGS = [
@@ -210,6 +253,9 @@ export const ENDINGS = [
   { id: "playco", name: "Playco Path", how: "Spare the Candy Warlock: escape the rotting pumpkin without defeating anyone." },
   { id: "omega", name: "Omega Saiyan", how: "As Cubro, burst-kill 40 enemies, then escape the rotting pumpkin." },
   { id: "true", name: "True", how: "Collect every other ending. The Warlock becomes a friend." },
+  // Secret: not needed for True (that list is fixed in PlayScene.finish).
+  { id: "backrooms", name: "Floor 470539758", how: "A secret ending. Some floors are not on the elevator." },
+  { id: "trapped", name: "TrAppEd fOrEvEr", how: "Lose all your lives on Floor 470539758. The hum never stops." },
 ];
 
 /** Codes marked `soon` are saved now; their unlock is not built yet (future update). */

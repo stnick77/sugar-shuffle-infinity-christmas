@@ -12,13 +12,16 @@ import {
   VolumeX,
 } from "lucide-react";
 import { onGame } from "@/game/bus";
-import { unlockAudio, startMusic, stopMusic, sfx, setSfxVolume, setMusicVolume } from "@/game/audio";
+import { unlockAudio, startMusic, stopMusic, sfx, setSfxVolume, setMusicVolume, setLevelSong } from "@/game/audio";
 import { COMBOS, ENDINGS, HEROES, LORE, MINIGAMES, PROMO_CODES, type HeroId, type Rank } from "@/game/data/world";
+import { ADMIN_LEVEL_ID, CREDITS, adminWarlordsUnlocked, candyCubeUnlocked } from "@/game/hayden/content";
 import { LEVELS } from "@/game/data/levels";
+import { BACKROOMS_ESCAPE, BACKROOMS_NAME, TRAPPED_ENDING, TRAPPED_NAME, escapeChoices, isBackroomsRoom } from "@/game/backrooms/backrooms";
 import { resetSave } from "@/game/save";
 import { HMR_EVENT, ssi } from "@/game/runtime";
 import { useGame, type Screen } from "@/store/game-store";
 import { TouchPad } from "./touch-pad";
+import { useMenuNav } from "./use-menu-nav";
 import { XmasButton, XmasCloset, XmasOptions, XmasTitleExtras, useXmasOn } from "./xmas-dlc";
 import { checkDecemberGift, xmasOn } from "@/game/dlc/state";
 import { installXmasMusic, setMusicArea } from "@/game/dlc/xmasMusic";
@@ -50,7 +53,10 @@ export function GameApp() {
   }, [setToast]);
 
   useEffect(() => {
-    if (screen === "title" || screen === "select") setMusicArea("menu");
+    if (screen === "title" || screen === "select") {
+      setMusicArea("menu");
+      setLevelSong(null);
+    }
   }, [screen]);
   const mountGen = useRef(0);
 
@@ -124,7 +130,7 @@ export function GameApp() {
       else if (e.t === "rank") {
         useGame.setState({ lastRank: { levelId: e.levelId, rank: e.rank as Rank, score: e.score } });
         setScreen("rank");
-      } else if (e.t === "over") setScreen("over");
+      } else if (e.t === "over") setScreen(e.ending === TRAPPED_ENDING ? "trapped" : "over");
       else if (e.t === "win") {
         useGame.setState({ ending: e.ending });
         setScreen("ending");
@@ -296,6 +302,14 @@ export function GameApp() {
             setReady(false);
             setScreen("select");
           }}
+          onAdmin={() => {
+            unlock();
+            pendingStart.current = ADMIN_LEVEL_ID;
+            setBooted(false);
+            setReady(false);
+            destroyLater();
+            setScreen("select");
+          }}
         />
       )}
       {screen === "select" && (
@@ -312,6 +326,15 @@ export function GameApp() {
           <Btn onClick={resume}>Resume</Btn>
           <Btn onClick={toHub} tone="ghost">Floor hub</Btn>
           <Btn onClick={() => openMenu("how", "pause")} tone="ghost">Controls</Btn>
+          <Btn
+            tone="ghost"
+            onClick={() => persist({ settings: { ...save.settings, jumpscares: save.settings.jumpscares === false } })}
+          >
+            Jumpscares: {save.settings.jumpscares === false ? "Off" : "On"}
+          </Btn>
+          <Btn tone="ghost" onClick={() => persist({ settings: { ...save.settings, glitch: save.settings.glitch === false } })}>
+            Character glitch: {save.settings.glitch === false ? "Off" : "On"}
+          </Btn>
           {dlcOn && (
             <Btn onClick={() => openMenu("options", "pause")} tone="ghost">
               Options
@@ -324,11 +347,41 @@ export function GameApp() {
       )}
       {screen === "rank" && lastRank && (
         <Modal title={LEVELS[lastRank.levelId]?.name ?? lastRank.levelId}>
+          {isBackroomsRoom(lastRank.levelId) && (
+            <p className="text-xs font-extrabold uppercase tracking-widest text-candy">{BACKROOMS_NAME}</p>
+          )}
           <p className="font-display text-7xl text-candy">{lastRank.rank}</p>
           <p className="text-cream-dim">Score {lastRank.score.toLocaleString()}</p>
-          <Btn onClick={toHub}>Back to hub</Btn>
+          {lastRank.levelId === BACKROOMS_ESCAPE && (
+            <>
+              <p className="text-sm text-cream" data-testid="escape-reward">
+                You escaped {BACKROOMS_NAME}! Bacteria (and Void) left behind. Reward: The Lore of Bacteria, the secret {BACKROOMS_NAME} ending and an Escape rank.
+              </p>
+              <p className="text-xs font-extrabold uppercase tracking-widest text-candy">Where to?</p>
+              <Btn onClick={toHub}>Floor 5</Btn>
+              {escapeChoices(dlcOn).includes("house") ? (
+                <Btn
+                  tone="ghost"
+                  onClick={() => {
+                    void import("@/game/phaserGame").then((m) => m.getPlay()?.enterHouse());
+                    setScreen("playing");
+                  }}
+                >
+                  Cuboe &amp; Cubro&apos;s House
+                </Btn>
+              ) : (
+                <p className="text-xs text-cream-dim">Cuboe &amp; Cubro&apos;s House needs the Christmas DLC, so it&apos;s Floor 5.</p>
+              )}
+            </>
+          )}
+          {lastRank.levelId === BACKROOMS_ESCAPE ? null : lastRank.levelId === ADMIN_LEVEL_ID ? (
+            <Btn onClick={goTitle}>Title</Btn>
+          ) : (
+            <Btn onClick={toHub}>Back to hub</Btn>
+          )}
         </Modal>
       )}
+      {screen === "trapped" && <TrappedEnding onDone={() => setScreen("over")} />}
       {screen === "over" && (
         <Modal title="Game over">
           <p className="text-cream-dim">The candy cubes crumple. Try the hub again.</p>
@@ -336,7 +389,8 @@ export function GameApp() {
           <Btn onClick={goTitle} tone="ghost">Title</Btn>
         </Modal>
       )}
-      {screen === "ending" && <Ending onTitle={goTitle} />}
+      {screen === "ending" && <Ending onTitle={goTitle} onCredits={() => setScreen("credits")} />}
+      {screen === "credits" && <CreditsScreen onTitle={goTitle} />}
       {screen === "how" && <How onClose={closeMenu} />}
       {screen === "lore" && <Lore onClose={closeMenu} />}
       {screen === "gallery" && <Gallery go={setScreen} onClose={closeMenu} />}
@@ -384,7 +438,7 @@ export function GameApp() {
         </div>
       )}
 
-      {overlay && screen !== "pause" && screen !== "rank" && screen !== "over" && screen !== "ending" && (
+      {overlay && screen !== "pause" && screen !== "rank" && screen !== "over" && screen !== "trapped" && screen !== "ending" && (
         <button
           type="button"
           className="absolute left-3 top-3 z-40 rounded-full border border-cream/15 bg-ink/70 px-3 py-2 text-xs font-bold uppercase tracking-wide"
@@ -455,8 +509,10 @@ function HudBar() {
   );
 }
 
-function Title({ onPlay, go, onHome }: { onPlay: () => void; go: (s: Screen) => void; onHome: () => void }) {
+function Title({ onPlay, go, onHome, onAdmin }: { onPlay: () => void; go: (s: Screen) => void; onHome: () => void; onAdmin: () => void }) {
   const dlcOn = useXmasOn();
+  const endings = useGame((s) => s.save.endings);
+  const adminOpen = adminWarlordsUnlocked(endings);
   return (
     <div
       className="absolute inset-0 z-40 flex flex-col items-center justify-center overflow-y-auto bg-cover bg-center px-5 py-6"
@@ -472,6 +528,7 @@ function Title({ onPlay, go, onHome }: { onPlay: () => void; go: (s: Screen) => 
       <div className="mt-4 flex items-end gap-6">
         <img src={HEROES.cuboe.portrait} alt="" className="h-16 w-16 object-contain" />
         <img src={HEROES.cubro.portrait} alt="" className="h-16 w-16 object-contain" />
+        {dlcOn && <img src={HEROES["candy-cube"].portrait} alt="" className="h-16 w-16 object-contain" />}
       </div>
       <p className="mt-4 max-w-md text-center text-sm text-cream-dim">
         Cuboe and Cubro sprint through five candy floors to save Halloween from the Candy Warlock.
@@ -497,6 +554,14 @@ function Title({ onPlay, go, onHome }: { onPlay: () => void; go: (s: Screen) => 
         <Btn tone="ghost" onClick={() => { sfx.ui(); go("endings"); }}>
           <Trophy className="size-4" /> Endings
         </Btn>
+        <Btn tone="ghost" onClick={() => { sfx.ui(); go("credits"); }}>
+          Credits
+        </Btn>
+        {adminOpen && (
+          <Btn onClick={onAdmin}>
+            Admin
+          </Btn>
+        )}
         {dlcOn && (
           <div className="grid grid-cols-2 gap-2">
             <Btn tone="ghost" onClick={onHome}>
@@ -515,13 +580,16 @@ function Title({ onPlay, go, onHome }: { onPlay: () => void; go: (s: Screen) => 
 }
 
 function Select({ onPick, onBack }: { onPick: (h: HeroId) => void; onBack: () => void }) {
+  const dlcOn = useXmasOn();
+  const ids = (Object.keys(HEROES) as HeroId[]).filter((id) => !HEROES[id].dlc || candyCubeUnlocked(dlcOn));
   return (
     <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-ink px-4">
       <p className="text-xs font-extrabold uppercase tracking-[0.28em] text-candy">Choose a cube</p>
       <h2 className="mt-1 font-display text-4xl">Who walks in?</h2>
-      <div className="mt-8 grid w-full max-w-2xl gap-4 sm:grid-cols-2">
-        {(Object.keys(HEROES) as HeroId[]).map((id) => {
+      <div className={"mt-8 grid w-full max-w-3xl gap-4 " + (ids.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+        {ids.map((id) => {
           const h = HEROES[id];
+          const hp = h.hp ?? h.lives;
           return (
             <button
               key={id}
@@ -532,7 +600,7 @@ function Select({ onPick, onBack }: { onPick: (h: HeroId) => void; onBack: () =>
               <img src={h.portrait} alt="" className="mx-auto h-28 w-28 object-contain" />
               <p className="mt-3 font-display text-3xl">{h.name}</p>
               <p className="text-xs font-extrabold uppercase tracking-widest text-candy">
-                {h.tag} · {h.lives} lives
+                {h.tag} · HP {hp} · {h.lives} lives
               </p>
               <p className="mt-2 text-sm text-cream-dim">{h.blurb}</p>
             </button>
@@ -575,7 +643,7 @@ function Lore({ onClose }: { onClose: () => void }) {
           return (
             <li key={l.id} className="rounded-2xl border border-cream/10 bg-surface p-3">
               <p className="font-display text-lg">{have ? l.name : "Sealed lore"}</p>
-              <p className="text-sm text-cream-dim">{l.how}</p>
+              <p className="text-sm text-cream-dim">{have ? l.how : "Keep exploring — this one stays hidden until you find it."}</p>
             </li>
           );
         })}
@@ -687,14 +755,259 @@ function Endings({ onClose }: { onClose: () => void }) {
   );
 }
 
-function Ending({ onTitle }: { onTitle: () => void }) {
+/**
+ * The hero you played, half turned into a Backrooms entity: the left half is the normal sprite,
+ * the right half goes dark (thin limbs, one glowing eye, half a Smiler grin), drawn in code,
+ * with a glitch flicker between the halves.
+ */
+function HalfEntity({ hero }: { hero: HeroId }) {
+  const ref = useRef<HTMLCanvasElement>(null);
+  useEffect(() => {
+    const cv = ref.current;
+    const ctx = cv?.getContext("2d");
+    if (!cv || !ctx) return;
+    const img = new Image();
+    img.src = `/game/sprites/${hero}-idle.png`;
+    const W = 256;
+    const H = 256;
+    const half = document.createElement("canvas");
+    half.width = W;
+    half.height = H;
+    const hx = half.getContext("2d")!;
+    let raf = 0;
+    let glitchUntil = 0;
+    let nextGlitch = performance.now() + 500;
+    let mode: "split" | "hero" | "entity" = "split";
+    const drawEntityHalf = (t: number) => {
+      // the right half of the hero, gone void-black
+      hx.clearRect(0, 0, W, H);
+      hx.imageSmoothingEnabled = false;
+      hx.drawImage(img, 0, 0, 128, 128, 0, 0, W, H);
+      hx.globalCompositeOperation = "source-atop";
+      hx.fillStyle = "#07050a";
+      hx.fillRect(0, 0, W, H);
+      hx.globalCompositeOperation = "source-over";
+      // long thin dark limbs reaching out and down from the right side
+      hx.strokeStyle = "#07050a";
+      hx.lineCap = "round";
+      const sway = Math.sin(t / 420) * 6;
+      hx.lineWidth = 7;
+      hx.beginPath();
+      hx.moveTo(170, 140);
+      hx.bezierCurveTo(215, 150 + sway, 236, 190, 246, 248);
+      hx.stroke();
+      hx.lineWidth = 6;
+      hx.beginPath();
+      hx.moveTo(160, 118);
+      hx.bezierCurveTo(210, 96 + sway, 238, 116, 252, 150 + sway);
+      hx.stroke();
+      // fingers
+      hx.lineWidth = 3;
+      for (const [x, y, dx, dy] of [
+        [246, 248, 8, 4],
+        [246, 248, 2, 8],
+        [252, 150 + sway, 3, 10],
+        [252, 150 + sway, -4, 12],
+      ]) {
+        hx.beginPath();
+        hx.moveTo(x, y);
+        hx.lineTo(x + dx, y + dy);
+        hx.stroke();
+      }
+      // a thin dark leg
+      hx.lineWidth = 6;
+      hx.beginPath();
+      hx.moveTo(160, 210);
+      hx.lineTo(176, 254);
+      hx.stroke();
+      // one glowing eye
+      const glowA = 0.55 + 0.35 * Math.sin(t / 160);
+      const g = hx.createRadialGradient(165, 96, 2, 165, 96, 26);
+      g.addColorStop(0, `rgba(255,255,240,${glowA})`);
+      g.addColorStop(1, "rgba(255,255,240,0)");
+      hx.fillStyle = g;
+      hx.fillRect(135, 66, 60, 60);
+      hx.fillStyle = "#fffbe6";
+      hx.beginPath();
+      hx.ellipse(165, 96, 10, 7, 0, 0, Math.PI * 2);
+      hx.fill();
+      // half a Smiler grin
+      hx.fillStyle = "#ffffff";
+      hx.beginPath();
+      hx.moveTo(128, 138);
+      hx.quadraticCurveTo(170, 140, 196, 122);
+      hx.quadraticCurveTo(178, 162, 128, 160);
+      hx.closePath();
+      hx.fill();
+      hx.strokeStyle = "#07050a";
+      hx.lineWidth = 2;
+      for (let x = 138; x < 194; x += 10) {
+        hx.beginPath();
+        hx.moveTo(x, 136);
+        hx.lineTo(x - 2, 160);
+        hx.stroke();
+      }
+      // void wisps drifting off
+      hx.fillStyle = "rgba(10,6,14,0.7)";
+      for (let i = 0; i < 6; i++) {
+        const k = ((t / 30 + i * 41) % 120) / 120;
+        hx.beginPath();
+        hx.arc(150 + i * 16, 210 - k * 200, 4 * (1 - k) + 1, 0, Math.PI * 2);
+        hx.fill();
+      }
+    };
+    const frame = (t: number) => {
+      ctx.clearRect(0, 0, W, H);
+      if (!img.complete || !img.naturalWidth) {
+        raf = requestAnimationFrame(frame);
+        return;
+      }
+      if (t > nextGlitch) {
+        glitchUntil = t + 70 + Math.random() * 110;
+        nextGlitch = t + 350 + Math.random() * 1100;
+        mode = Math.random() < 0.3 ? "hero" : Math.random() < 0.5 ? "entity" : "split";
+      }
+      const glitching = t < glitchUntil;
+      ctx.imageSmoothingEnabled = false;
+      drawEntityHalf(t);
+      // the seam between the halves wobbles; during a glitch it jumps (or one side takes over)
+      const seam = glitching ? (mode === "hero" ? W : mode === "entity" ? 0 : 128 + (Math.random() - 0.5) * 60) : 128;
+      // left: the normal hero
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      for (let y = 0; y <= H; y += 16) ctx.lineTo(seam + ((y / 16) % 2 ? 4 : -4), y);
+      ctx.lineTo(0, H);
+      ctx.closePath();
+      ctx.clip();
+      ctx.drawImage(img, 0, 0, 128, 128, 0, 0, W, H);
+      ctx.restore();
+      // right: the entity (sliced sideways while glitching)
+      ctx.save();
+      ctx.beginPath();
+      ctx.moveTo(W + 40, 0);
+      for (let y = 0; y <= H; y += 16) ctx.lineTo(seam + ((y / 16) % 2 ? 4 : -4), y);
+      ctx.lineTo(W + 40, H);
+      ctx.closePath();
+      ctx.clip();
+      if (glitching) {
+        for (let y = 0; y < H; y += 16) ctx.drawImage(half, 0, y, W, 16, (Math.random() - 0.5) * 18, y, W, 16);
+      } else ctx.drawImage(half, 0, 0);
+      ctx.restore();
+      if (glitching) {
+        ctx.fillStyle = Math.random() < 0.5 ? "rgba(255,40,60,0.25)" : "rgba(60,220,255,0.22)";
+        ctx.fillRect(0, Math.random() * H, W, 6 + Math.random() * 20);
+      }
+      raf = requestAnimationFrame(frame);
+    };
+    raf = requestAnimationFrame(frame);
+    return () => cancelAnimationFrame(raf);
+  }, [hero]);
+  return <canvas ref={ref} width={256} height={256} className="size-48 sm:size-60" style={{ imageRendering: "pixelated" }} data-testid="half-entity" />;
+}
+
+/** Out of lives on Floor 470539758: a dark, flickering yellow hallway, glitchy words and a creepy hum. */
+function TrappedEnding({ onDone }: { onDone: () => void }) {
+  const hero = useGame((s) => s.save.hero);
+  useEffect(() => {
+    sfx.hum();
+    const id = window.setInterval(() => sfx.hum(), 2600);
+    const buzz = window.setInterval(() => sfx.buzz(), 900);
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || (e.code !== "Space" && e.code !== "Enter" && e.code !== "Escape")) return;
+      e.preventDefault();
+      onDone();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.clearInterval(id);
+      window.clearInterval(buzz);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onDone]);
+  return (
+    <div className="absolute inset-0 z-40 overflow-hidden bg-black" data-testid="trapped-ending">
+      <style>{`
+        @keyframes br-flicker { 0%,100% { opacity: .9 } 7% { opacity: .45 } 9% { opacity: .95 } 42% { opacity: .85 } 44% { opacity: .2 } 47% { opacity: .9 } 80% { opacity: .75 } }
+        @keyframes br-glitch { 0%,100% { transform: translate(0,0) skewX(0) } 20% { transform: translate(-3px,1px) skewX(-6deg) } 21% { transform: translate(4px,-2px) } 60% { transform: translate(0,0) } 61% { transform: translate(-6px,0) skewX(8deg) } 63% { transform: translate(2px,1px) } }
+        @keyframes br-split { 0%,100% { clip-path: inset(0 0 0 0) } 30% { clip-path: inset(10% 0 55% 0) } 31% { clip-path: inset(60% 0 8% 0) } 70% { clip-path: inset(35% 0 40% 0) } }
+      `}</style>
+      <div
+        className="absolute inset-0 bg-cover bg-center"
+        style={{ backgroundImage: "url(/game/bg/br-level0.jpg)", filter: "brightness(.62) sepia(.35) saturate(1.25)", animation: "br-flicker 2.3s infinite steps(1)" }}
+      />
+      <div className="absolute inset-0" style={{ background: "radial-gradient(ellipse at center, rgba(0,0,0,.15) 25%, rgba(0,0,0,.85) 85%)" }} />
+      <div className="relative flex h-full flex-col items-center justify-center gap-4 px-6 text-center">
+        <p className="text-xs font-extrabold uppercase tracking-[0.3em] text-[#e8d67a]/80">{BACKROOMS_NAME}</p>
+        <HalfEntity hero={hero} />
+        <div className="relative font-display text-6xl text-[#f3e27a] sm:text-8xl" style={{ animation: "br-glitch 1.7s infinite steps(1)", textShadow: "0 0 18px rgba(255,230,120,.5)" }}>
+          <span>{TRAPPED_NAME}</span>
+          <span aria-hidden className="absolute inset-0 text-[#ff3040] mix-blend-screen" style={{ transform: "translate(3px,0)", animation: "br-split 1.1s infinite steps(1)" }}>
+            {TRAPPED_NAME}
+          </span>
+          <span aria-hidden className="absolute inset-0 text-[#40e0ff] mix-blend-screen" style={{ transform: "translate(-3px,0)", animation: "br-split 1.4s infinite steps(1) reverse" }}>
+            {TRAPPED_NAME}
+          </span>
+        </div>
+        <p className="max-w-sm text-sm text-[#e8d67a]/80">Ending unlocked. The lights hum. The hallway goes on forever.</p>
+        <Btn onClick={onDone}>Continue</Btn>
+      </div>
+    </div>
+  );
+}
+
+function Ending({ onTitle, onCredits }: { onTitle: () => void; onCredits: () => void }) {
   const ending = useGame((s) => s.ending);
   const meta = ENDINGS.find((e) => e.id === ending);
   return (
     <Modal title={meta?.name ?? "Ending"}>
       <p className="text-cream-dim">{meta?.how}</p>
-      <Btn onClick={onTitle}>Title</Btn>
+      <Btn onClick={onCredits}>Credits</Btn>
+      <Btn tone="ghost" onClick={onTitle}>Title</Btn>
     </Modal>
+  );
+}
+
+function CreditsScreen({ onTitle }: { onTitle: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || (e.code !== "Space" && e.code !== "Enter" && e.code !== "Escape")) return;
+      e.preventDefault();
+      sfx.ui();
+      onTitle();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onTitle]);
+  const nav = useRef<HTMLDivElement>(null);
+  useMenuNav(nav, { activate: false });
+  return (
+    <div ref={nav} className="absolute inset-0 z-40 overflow-y-auto bg-ink px-5 py-8">
+      <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-4 text-center">
+        <p className="text-xs font-extrabold uppercase tracking-[0.28em] text-candy">{CREDITS.title}</p>
+        <ul className="w-full space-y-2 text-left">
+          {CREDITS.roles.map((r) => (
+            <li key={r.role} className="rounded-2xl border border-cream/10 bg-surface px-4 py-2">
+              <p className="text-xs font-extrabold uppercase tracking-widest text-candy">{r.role}</p>
+              <p className="font-display text-xl">{r.names.join(", ")}</p>
+            </li>
+          ))}
+          <li className="rounded-2xl border border-cream/10 bg-surface px-4 py-2">
+            <p className="text-xs font-extrabold uppercase tracking-widest text-candy">{CREDITS.crewLabel}</p>
+            <p className="font-display text-xl">{CREDITS.crew.join(", ")}</p>
+          </li>
+        </ul>
+        <img
+          src="/game/sprites/credits-cuboe-cubro.png"
+          alt={`Cuboe and Cubro: ${CREDITS.signoff}`}
+          className="mt-2 w-full max-w-lg object-contain"
+        />
+        {/* The sign-off is lettered in the picture (scripts/art/make-credits-art.py); kept here for screen readers. */}
+        <p className="sr-only">{CREDITS.signoff}</p>
+        <p className="text-sm text-cream-dim">{CREDITS.hint}</p>
+        <Btn onClick={onTitle}>Main menu</Btn>
+      </div>
+    </div>
   );
 }
 
@@ -987,8 +1300,10 @@ function SettingsRow() {
 }
 
 function Modal({ title, children }: { title: string; children: ReactNode }) {
+  const nav = useRef<HTMLDivElement>(null);
+  useMenuNav(nav);
   return (
-    <div className="absolute inset-0 z-30 flex items-center justify-center bg-ink/70 px-4 backdrop-blur-[2px]">
+    <div ref={nav} className="absolute inset-0 z-30 flex items-center justify-center bg-ink/70 px-4 backdrop-blur-[2px]">
       <div className="flex w-full max-w-md flex-col items-center gap-3 rounded-[32px] border border-cream/12 bg-surface p-6 text-center">
         <h2 className="font-display text-3xl">{title}</h2>
         {children}
@@ -998,8 +1313,11 @@ function Modal({ title, children }: { title: string; children: ReactNode }) {
 }
 
 function Sheet({ title, children }: { title: string; children: ReactNode }) {
+  // Keyboard / gamepad Up-Down through every button, scrolling the sheet (the game blocks native arrow scrolling).
+  const nav = useRef<HTMLDivElement>(null);
+  useMenuNav(nav);
   return (
-    <div className="absolute inset-0 z-30 overflow-y-auto bg-ink px-4 py-16">
+    <div ref={nav} className="absolute inset-0 z-30 overflow-y-auto bg-ink px-4 py-16">
       <div className="mx-auto flex w-full max-w-lg flex-col gap-3">
         <h2 className="font-display text-4xl">{title}</h2>
         {children}

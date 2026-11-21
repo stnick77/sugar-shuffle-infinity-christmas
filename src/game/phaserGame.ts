@@ -20,7 +20,7 @@ export function mountGame(parent: HTMLElement) {
     roundPixels: true,
     physics: {
       default: "arcade",
-      arcade: { gravity: { x: 0, y: 0 }, debug: false },
+      arcade: { gravity: { x: 0, y: 0 }, debug: false, fps: 60, fixedStep: true },
     },
     scale: {
       mode: Phaser.Scale.FIT,

@@ -24,10 +24,12 @@ describe("DLC toggle", () => {
     const s1 = toggleDlc(s0);
     assert.equal(s1.enabled, true);
     assert.ok(s1.owned.includes("santa-hat"));
-    assert.ok(!s1.owned.includes(DECEMBER_GIFT_ID), "December gift is not free with the DLC");
+    assert.ok(s1.owned.includes("elf-costume"));
+    assert.ok(s1.owned.includes("candle-aura"));
+    assert.ok(!s1.owned.includes(DECEMBER_GIFT_ID), "retired scarf is not granted with the DLC");
     const s2 = toggleDlc(s1);
     assert.equal(s2.enabled, false);
-    assert.deepEqual(activeCosmetics({ ...s2, equipped: { cuboe: ["santa-hat"], cubro: [] } }, "cuboe"), []);
+    assert.deepEqual(activeCosmetics({ ...s2, equipped: { cuboe: ["santa-hat"], cubro: [], "candy-cube": [] } }, "cuboe"), []);
   });
   it("survives a JSON round-trip (localStorage persistence)", () => {
     const s = toggleDlc(normalizeXmas(undefined));
@@ -38,7 +40,7 @@ describe("DLC toggle", () => {
   it("normalizes old/partial saves", () => {
     const s = normalizeXmas({ enabled: true } as never);
     assert.deepEqual(s.collected, XMAS_DEFAULTS.collected);
-    assert.deepEqual(s.equipped, { cuboe: [], cubro: [] });
+    assert.deepEqual(s.equipped, { cuboe: [], cubro: [], "candy-cube": [] });
   });
 });
 
@@ -58,9 +60,16 @@ describe("cosmetics", () => {
     s = toggleEquip(s, "cuboe", "santa-hat");
     assert.deepEqual(activeCosmetics(s, "cuboe"), ["present-aura"]);
   });
-  it("can't equip the scarf before December", () => {
+  it("can't equip the retired scarf", () => {
     const s = toggleDlc(normalizeXmas(undefined));
     assert.deepEqual(toggleEquip(s, "cuboe", DECEMBER_GIFT_ID), s);
+  });
+  it("equips Candy Cube's elf costume and candle aura", () => {
+    let s = toggleDlc(normalizeXmas(undefined));
+    s = toggleEquip(s, "candy-cube", "elf-costume");
+    s = toggleEquip(s, "candy-cube", "candle-aura");
+    assert.deepEqual(activeCosmetics(s, "candy-cube").sort(), ["candle-aura", "elf-costume"]);
+    assert.deepEqual(toggleEquip(s, "cuboe", "elf-costume"), s);
   });
 });
 
@@ -92,17 +101,26 @@ describe("December gift", () => {
     assert.equal(decemberGiftDue(on, nov), false);
     assert.equal(decemberGiftDue(on, dec), true);
   });
-  it("grants the scarf once per year", () => {
+  it("no longer grants the retired scarf; it only stamps the year", () => {
     const on = toggleDlc(normalizeXmas(undefined));
     const a = claimDecemberGift(on, dec);
-    assert.equal(a.granted, true);
-    assert.equal(a.firstTime, true);
-    assert.ok(a.state.owned.includes(DECEMBER_GIFT_ID));
+    assert.equal(a.granted, false);
+    assert.ok(!a.state.owned.includes(DECEMBER_GIFT_ID));
+    assert.ok(a.state.decemberYears.includes(2026));
     const b = claimDecemberGift(a.state, dec);
     assert.equal(b.granted, false);
     const c = claimDecemberGift(a.state, dec27);
-    assert.equal(c.granted, true);
-    assert.equal(c.firstTime, false);
+    assert.ok(c.state.decemberYears.includes(2027));
+    assert.ok(!c.state.owned.includes(DECEMBER_GIFT_ID));
+  });
+  it("strips a leftover scarf from old saves", () => {
+    const s = normalizeXmas({
+      enabled: true,
+      owned: [DECEMBER_GIFT_ID, "santa-hat"],
+      equipped: { cuboe: [DECEMBER_GIFT_ID], cubro: [] },
+    } as never);
+    assert.ok(!s.owned.includes(DECEMBER_GIFT_ID));
+    assert.deepEqual(s.equipped.cuboe, []);
   });
   it("parses override dates", () => {
     assert.equal(parseDlcDate("2026-12-24")!.getMonth(), 11);

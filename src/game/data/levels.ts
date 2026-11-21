@@ -1,4 +1,5 @@
-import { TILE } from "../config";
+import { TILE } from "../config.ts";
+import { BACKROOMS_FLOOR, BACKROOMS_HUB } from "../backrooms/backrooms.ts";
 
 export interface LevelDef {
   id: string;
@@ -12,6 +13,18 @@ export interface LevelDef {
   isHub?: boolean;
   isFinal?: boolean;
   bossId?: string;
+  /** A hub with its own theme (door art, tiles, song) — only the Backrooms hub. */
+  themed?: boolean;
+  /**
+   * Fit the background to the part of it the parallax actually shows (camera
+   * width + factor x scroll), so a picture composed for the room maps ~1:1.
+   * Used by the Backrooms rooms; other rooms keep the old sizing.
+   */
+  bgSpan?: boolean;
+  /** The Backrooms escape: Bacteria chases you to the exit (no Sugar Time). */
+  chase?: boolean;
+  /** The calm room past the escape (no goal; walk to the ESCAPE door). */
+  heaven?: boolean;
 }
 
 function norm(rows: string[]): string[] {
@@ -98,7 +111,7 @@ const HUB5: string[] = [
   "........................................====..............",
   "..........................................................",
   "....................................====..................",
-  "S....1....2....3....4.....P.....g..............B....E.....",
+  "S....1....2....3....4.....P.....g.........N....B....E.....",
   "##########################################################",
   "##########################################################",
 ];
@@ -302,6 +315,14 @@ const ARENA_F4: string[] = [
   "########################################",
 ];
 
+const ARENA_ADMIN: string[] = [
+  "........................................",
+  "......====..............====............",
+  "........................................",
+  ".........S..............B...............",
+  "########################################",
+];
+
 const FINAL: string[] = [
   "........................................................................................",
   "................C................n..............p.......................................",
@@ -310,6 +331,111 @@ const FINAL: string[] = [
   "......====...........====............====.............====..............................",
   "S..............................................................g......................X",
   "########......##########......##########......##########......##########################",
+];
+
+
+/* ---------- Floor 470539758: the Backrooms (src/game/backrooms) ---------- */
+// Extra map characters (Backrooms only):
+//   O  EXIT door back up to Floor 5        N  "Floor 470539758" tear in the Floor 5 hub
+//   m  light moth (harmless)   h  wallpaper smiler   r  office chair   d  floatie duck   k  shadow hound
+//   ~  sliding platform (2 tiles, side to side)     ^  lift platform (2 tiles, up and down)
+//   <  >  conveyor floor (pushes you that way)      w  pool water (safe; slows you, swim with Jump)
+//   v  stalactite: shakes when you are under it, then drops
+
+const HUB_BR: string[] = [
+  "..........................................................",
+  "..........m.......................m..................m....",
+  "..........................................................",
+  "...............m.......................m..................",
+  "..........................................................",
+  "..........................................................",
+  "....................m............................m........",
+  "..........................................................",
+  "S..........1.........2.........3.........4........B.......",
+  "##########################################################",
+  "##########################################################",
+];
+
+const BR_LEVEL0: string[] = [
+  "................................................................................",
+  "................................................................................",
+  "..........c..................c........................c.........................",
+  ".........====...............====..........h..........====.......................",
+  "....................h...........................................h...............",
+  "................................................................................",
+  "S.........................##...h.........##..c..............................g..X",
+  "########...#######...#############...###########...##########...################",
+];
+
+const BR_MOTION: string[] = [
+  "................................................................................",
+  "...................................................................c............",
+  "..............................................................#########.........",
+  "..............c..................................^..............................",
+  "............====..........r.....................................................",
+  "......................#############.............................................",
+  "S.......r........................................r...........r..............g..X",
+  "######>>>>>>>####.~..###<<<<<<<<<<#####.~..####>>>>>>>>####.~..#######>>>>>>>###",
+];
+
+const BR_POOL: string[] = [
+  "................................................................................",
+  "................................................................................",
+  "...........c..................c........................c........................",
+  "....................d...........................d...............................",
+  "..........===................===......................===.......................",
+  "S......d............................................................d.....g....X",
+  "#######wwwwww######wwwwwwwwwwwwwwww#####wwwwww####wwwwwwwwwwwwwwwwww############",
+  "#######wwwwww######wwwwwwwwwwwwwwww#####wwwwww####wwwwwwwwwwwwwwwwww############",
+  "#######wwwwww######wwwwww######wwwww#####wwwwww####wwwwwwwwwwwwwwwwww###########",
+  "################################################################################",
+];
+
+const BR_CAVE: string[] = [
+  "################################################################################",
+  "#.....v.........v..........v...............v.........v...........v.........#####",
+  "#..........c....................................................c..........#####",
+  "#.........====.........................................====................#####",
+  "#........................====...............k...........................c.......",
+  "#...............................................................................",
+  "S........k...............k............####...........k..........####........g..X",
+  "###########....##############....#############....###############....###########",
+  "################################################################################",
+];
+
+const BR_ESCAPE: string[] = [
+  "........................................................................................................................",
+  "............................c.................................c..................................c......................",
+  "...........................===...............................===................................===.....................",
+  "........................................................................................................................",
+  "S...........#.....................#.....................##......................#.....................#................X",
+  "######################...###################...#####################...###################...###########################",
+];
+
+const BR_HEAVEN: string[] = [
+  "......S.........................",
+  "................................",
+  "................................",
+  "................................",
+  "................................",
+  "................................",
+  "................................",
+  "................................",
+  "................................",
+  "................................",
+  "................................",
+  ".....................Y..........",
+  "################################",
+  "################################",
+];
+
+const ARENA_BR: string[] = [
+  "........................................",
+  "........................................",
+  ".....====......................====.....",
+  "........................................",
+  ".........S..............B...............",
+  "########################################",
 ];
 
 function pack(
@@ -353,12 +479,15 @@ export const LEVELS: Record<string, LevelDef> = {
     isBoss: true,
     bossId: "f2-boss",
     pizzaTime: 0,
-    bg: "/game/bg/marsh-mash.jpg",
+    // Hayden: "a western shoot out at midnight" (scripts/art/make-midnight-shootout.py).
+    // The old marsh-mash.jpg stays in public/game/bg/ (other floors still use it).
+    bg: "/game/bg/midnight-shootout.jpg",
     ground: "marsh",
   }),
   "f3-1": pack("f3-1", "Raisin Ruins", RUINS, { bg: "/game/bg/raisin-ruins.jpg", ground: "marsh" }),
   "f3-2": pack("f3-2", "Smash City", CITY, { bg: "/game/bg/smash-city.jpg", ground: "marsh" }),
-  "f3-3": pack("f3-3", "Drunk Saloon", SALOON, { bg: "/game/bg/desert.jpg", ground: "marsh" }),
+  // Was /game/bg/desert.jpg (still in public/game/bg); party scene from scripts/art/make-saloon-party.py.
+  "f3-3": pack("f3-3", "Drunk Saloon", SALOON, { bg: "/game/bg/saloon-party.jpg", ground: "marsh" }),
   "f3-4": pack("f3-4", "Scotch T.V.", TV, { bg: "/game/bg/scotch-tv.jpg", ground: "marsh" }),
   "f3-boss": pack("f3-boss", "Fake Candy Cubro", ARENA, { isBoss: true, bossId: "f3-boss", pizzaTime: 0, bg: "/game/bg/boss-fake-cubro.jpg" }),
   "f4-1": pack("f4-1", "Licorice Landfill", LANDFILL, { bg: "/game/bg/landfill.jpg", tint: 0xb8d4c0 }),
@@ -383,6 +512,23 @@ export const LEVELS: Record<string, LevelDef> = {
     pizzaTime: 240,
     bg: "/game/bg/rotting-pumpkin.jpg",
   }),
+  "admin-warlords": pack("admin-warlords", "Admin Warlords", ARENA_ADMIN, {
+    isBoss: true,
+    bossId: "admin-warlords",
+    pizzaTime: 0,
+    bg: "/game/bg/grave-yard.jpg",
+    ground: "marsh",
+    tint: 0x3a2458,
+  }),
+  // Floor 470539758 (the Backrooms): own hub, 4 levels and the Bacteria fight.
+  [BACKROOMS_HUB]: pack(BACKROOMS_HUB, "Floor 470539758", HUB_BR, { isHub: true, themed: true, bgSpan: true, pizzaTime: 0, bg: "/game/bg/br-hub.jpg" }),
+  "br-0": pack("br-0", "Level 0", BR_LEVEL0, { bg: "/game/bg/br-level0.jpg", bgSpan: true, pizzaTime: 75 }),
+  "br-motion": pack("br-motion", "Motion", BR_MOTION, { bg: "/game/bg/br-motion.jpg", bgSpan: true, pizzaTime: 80 }),
+  "br-pool": pack("br-pool", "Pool Rooms", BR_POOL, { bg: "/game/bg/br-pool.jpg", bgSpan: true, pizzaTime: 85 }),
+  "br-cave": pack("br-cave", "Cave System", BR_CAVE, { bg: "/game/bg/br-cave.jpg", bgSpan: true, pizzaTime: 85 }),
+  "br-escape": pack("br-escape", "Escape!", BR_ESCAPE, { bg: "/game/bg/br-escape.jpg", bgSpan: true, chase: true, pizzaTime: 0 }),
+  "br-heaven": pack("br-heaven", "Escape", BR_HEAVEN, { bg: "/game/bg/br-heaven.jpg", bgSpan: true, heaven: true, pizzaTime: 0 }),
+  "br-boss": pack("br-boss", "Bacteria", ARENA_BR, { isBoss: true, bossId: "br-boss", bgSpan: true, pizzaTime: 0, bg: "/game/bg/br-bacteria.jpg" }),
 };
 
 export function worldSize(level: LevelDef) {
@@ -396,5 +542,6 @@ export function eachCell(level: LevelDef, fn: (ch: string, tx: number, ty: numbe
 }
 
 export function hubIdFor(floor: number) {
+  if (floor === BACKROOMS_FLOOR) return BACKROOMS_HUB;
   return `hub-${Math.min(5, Math.max(1, floor))}`;
 }

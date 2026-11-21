@@ -1,6 +1,6 @@
 import { create } from "zustand";
 import { loadSave, writeSave, type SaveData } from "@/game/save";
-import type { HeroId, Rank } from "@/game/data/world";
+import { HEROES, type HeroId, type Rank } from "@/game/data/world";
 
 export type Screen =
   | "title"
@@ -9,6 +9,7 @@ export type Screen =
   | "pause"
   | "rank"
   | "over"
+  | "trapped"
   | "gallery"
   | "lore"
   | "minigames"
@@ -16,6 +17,7 @@ export type Screen =
   | "how"
   | "endings"
   | "ending"
+  | "credits"
   | "options";
 
 export interface Hud {
@@ -82,8 +84,10 @@ export const useGame = create<Store>((set, get) => ({
   setHud: (h) => set({ hud: { ...get().hud, ...h } }),
   setToast: (toast) => set({ toast }),
   pickHero: (hero) => {
-    const lives = hero === "cuboe" ? 6 : 9;
+    const def = HEROES[hero] ?? HEROES.cuboe;
+    const maxHp = def.hp ?? def.lives;
+    const lives = def.lives;
     get().persist({ hero });
-    set({ hud: { ...get().hud, lives, hp: lives, maxHp: lives } });
+    set({ hud: { ...get().hud, lives, hp: maxHp, maxHp } });
   },
 }));
