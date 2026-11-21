@@ -575,7 +575,7 @@ function Lore({ onClose }: { onClose: () => void }) {
           return (
             <li key={l.id} className="rounded-2xl border border-cream/10 bg-surface p-3">
               <p className="font-display text-lg">{have ? l.name : "Sealed lore"}</p>
-              <p className="text-sm text-cream-dim">{l.how}</p>
+              <p className="text-sm text-cream-dim">{have ? l.how : "Keep exploring — this one stays hidden until you find it."}</p>
             </li>
           );
         })}

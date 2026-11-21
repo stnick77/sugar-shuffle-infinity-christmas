@@ -1,5 +1,6 @@
 import * as Phaser from "phaser";
 import { TILE } from "../config";
+import { MAX_FALL_SPEED, canEnterDoor, capFallSpeed, landingFloorTop, shouldLandOnFloor, type Aabb } from "../physics/floors";
 import { LEVELS, eachCell, hubIdFor, worldSize, type LevelDef } from "../data/levels";
 import { BOSSES, FLOORS, HEROES, rankFromScore, type HeroId } from "../data/world";
 import { emitGame } from "../bus";
@@ -235,6 +236,9 @@ export class PlayScene extends Phaser.Scene {
     // Rooms have an extra row below the camera so short gaps can be fallen through.
     this.physics.world.setBounds(0, 0, w, open ? h + TILE : h);
     this.physics.world.setBoundsCollision(true, true, true, !open);
+    // Discrete Arcade steps can skip a 48px tile at high fall speed; bias + post-step snap catch them.
+    this.physics.world.TILE_BIAS = TILE;
+    this.physics.world.OVERLAP_BIAS = TILE;
 
     if (!this.textures.exists("px")) {
       const g = this.make.graphics({ x: 0, y: 0 });
@@ -280,11 +284,13 @@ export class PlayScene extends Phaser.Scene {
     this.bootXmas();
 
     this.physics.add.collider(this.player, this.solids);
-    this.physics.add.collider(this.player, this.oneWay, undefined, (_p, plat) => {
-      if (this.dropT > 0) return false;
-      const body = this.player.body as Phaser.Physics.Arcade.Body;
-      const pb = (plat as Phaser.Physics.Arcade.Sprite).body as Phaser.Physics.Arcade.StaticBody;
-      return body.velocity.y >= 0 && body.bottom <= pb.top + 8;
+    this.physics.add.collider(this.player, this.oneWay, undefined, (_p, plat) =>
+      this.oneWayLand(this.player.body as Phaser.Physics.Arcade.Body, plat as Phaser.Physics.Arcade.Sprite, this.dropT > 0),
+    );
+    this.events.off(Phaser.Scenes.Events.POST_UPDATE, this.snapToFloors, this);
+    this.events.on(Phaser.Scenes.Events.POST_UPDATE, this.snapToFloors, this);
+    this.events.once(Phaser.Scenes.Events.SHUTDOWN, () => {
+      this.events.off(Phaser.Scenes.Events.POST_UPDATE, this.snapToFloors, this);
     });
     this.physics.add.overlap(this.player, this.pickups, (_p, pk) => this.grab(pk as Phaser.Physics.Arcade.Sprite));
     this.physics.add.overlap(this.player, this.shots, (_p, sh) => {
@@ -471,11 +477,10 @@ export class PlayScene extends Phaser.Scene {
       } else if (ch === "R") {
         this.secrets++;
         this.interactives.push({ kind: "rift", id: "rift", x, y });
-        this.marker(x, y - 36, "?");
+        // Lore spots stay findable but unmarked until you discover them.
       } else if (ch === "M") {
         this.interactives.push({ kind: "metroid", id: "metroid", x, y });
-        this.add.rectangle(x, y + 14, 84, 14, 0x6a5a8a).setStrokeStyle(2, 0xc9b8ff).setDepth(2);
-        this.marker(x, y - 30, "M");
+        // No in-world marker or special colour — attack this ledge to find the lore.
       }
       else if (ch === "H") {
         this.interactives.push({ kind: "tv", id: "tv", x, y });
@@ -632,18 +637,16 @@ export class PlayScene extends Phaser.Scene {
     spr.setCollideWorldBounds(true);
     const body = spr.body as Phaser.Physics.Arcade.Body;
     body.setGravityY(1900);
-    body.setMaxVelocity(780, 1100);
+    body.setMaxVelocity(780, MAX_FALL_SPEED);
     body.setSize(54, 78).setOffset(37, 42);
     spr.play(`${hero}-idle`);
     spr.setDepth(6);
     const p: Partner = { spr, hero, facing: 1, coyote: 0, jumpBuf: 0, attackT: 0, dropT: 0 };
     this.partner = p;
     this.physics.add.collider(spr, this.solids);
-    this.physics.add.collider(spr, this.oneWay, undefined, (_p, plat) => {
-      if (p.dropT > 0) return false;
-      const pb = (plat as Phaser.Physics.Arcade.Sprite).body as Phaser.Physics.Arcade.StaticBody;
-      return body.velocity.y >= 0 && body.bottom <= pb.top + 8;
-    });
+    this.physics.add.collider(spr, this.oneWay, undefined, (_p, plat) =>
+      this.oneWayLand(body, plat as Phaser.Physics.Arcade.Sprite, p.dropT > 0),
+    );
     this.physics.add.overlap(spr, this.pickups, (_p, pk) => this.grab(pk as Phaser.Physics.Arcade.Sprite));
     this.physics.add.overlap(spr, this.shots, (_p, sh) => {
       const s = sh as Phaser.Physics.Arcade.Sprite;
@@ -690,6 +693,7 @@ export class PlayScene extends Phaser.Scene {
       sfx.jump();
     }
     if (!a.jump && body.velocity.y < 0) body.setVelocityY(body.velocity.y * 0.52);
+    if (body.velocity.y > MAX_FALL_SPEED) body.setVelocityY(MAX_FALL_SPEED);
     if (a.attackPressed && p.attackT <= 0) {
       p.attackT = 0.22;
       p.spr.play(`${p.hero}-attack`, true);
@@ -792,7 +796,7 @@ export class PlayScene extends Phaser.Scene {
     this.player.setCollideWorldBounds(true);
     const body = this.player.body as Phaser.Physics.Arcade.Body;
     body.setGravityY(1900);
-    body.setMaxVelocity(780, 1100);
+    body.setMaxVelocity(780, MAX_FALL_SPEED);
     body.setSize(54, 78).setOffset(37, 42);
     this.player.play(`${h}-idle`);
     this.player.setDepth(6);
@@ -907,7 +911,8 @@ export class PlayScene extends Phaser.Scene {
       this.player.play(`${this.hero}-jump`, true);
     }
     if (!actions.jump && body.velocity.y < 0) body.setVelocityY(body.velocity.y * 0.52);
-    if (actions.down && !grounded && body.velocity.y > 80) body.setVelocityY(Math.min(1200, body.velocity.y + 2400 * dt));
+    if (actions.down && !grounded && body.velocity.y > 80) body.setVelocityY(capFallSpeed(body.velocity.y + 2400 * dt));
+    if (body.velocity.y > MAX_FALL_SPEED) body.setVelocityY(MAX_FALL_SPEED);
     if (actions.attackPressed && this.attackT <= 0) this.doAttack(actions);
     if (actions.specialPressed) this.doSpecial(actions);
 
@@ -921,6 +926,69 @@ export class PlayScene extends Phaser.Scene {
       else if (this.hero === "cubro" && promo.includes("were-cubro")) this.player.setTint(0xff6688);
       else this.player.clearTint();
     }
+  }
+
+  /** Arcade process callback: swept test so a fast fall still lands on a one-way platform. */
+  private oneWayLand(body: Phaser.Physics.Arcade.Body, plat: Phaser.Physics.Arcade.Sprite, dropping: boolean) {
+    const pb = plat.body as Phaser.Physics.Arcade.StaticBody;
+    return shouldLandOnFloor({
+      velocityY: body.velocity.y,
+      dropping,
+      oneWay: true,
+      prev: this.prevAabb(body),
+      curr: this.bodyAabb(body),
+      floor: this.bodyAabb(pb),
+    });
+  }
+
+  private bodyAabb(body: Phaser.Physics.Arcade.Body | Phaser.Physics.Arcade.StaticBody): Aabb {
+    return { left: body.x, right: body.right, top: body.y, bottom: body.bottom };
+  }
+
+  private prevAabb(body: Phaser.Physics.Arcade.Body): Aabb {
+    const x = body.prev.x;
+    const y = body.prev.y;
+    return { left: x, right: x + body.width, top: y, bottom: y + body.height };
+  }
+
+  private listFloors(): { aabb: Aabb; oneWay?: boolean }[] {
+    const out: { aabb: Aabb; oneWay?: boolean }[] = [];
+    const add = (group: Phaser.Physics.Arcade.StaticGroup, oneWay?: boolean) => {
+      group.getChildren().forEach((obj) => {
+        const b = (obj as Phaser.Physics.Arcade.Image).body as Phaser.Physics.Arcade.StaticBody | null;
+        if (!b) return;
+        out.push({ aabb: this.bodyAabb(b), oneWay });
+      });
+    };
+    add(this.solids);
+    add(this.oneWay, true);
+    return out;
+  }
+
+  /** After the physics step, snap anyone who tunneled through a floor back on top. */
+  private snapToFloors() {
+    if (this.frozen) return;
+    this.landIfTunneled(this.player, this.dropT > 0);
+    if (this.partner?.spr.active) this.landIfTunneled(this.partner.spr, this.partner.dropT > 0);
+  }
+
+  private landIfTunneled(spr: Phaser.Physics.Arcade.Sprite, dropping: boolean) {
+    const body = spr.body as Phaser.Physics.Arcade.Body | null;
+    if (!body) return;
+    if (body.velocity.y > MAX_FALL_SPEED) body.setVelocityY(MAX_FALL_SPEED);
+    const floors = dropping ? this.listFloors().filter((f) => !f.oneWay) : this.listFloors();
+    const top = landingFloorTop({
+      velocityY: body.velocity.y,
+      dropping,
+      prev: this.prevAabb(body),
+      curr: this.bodyAabb(body),
+      floors,
+    });
+    if (top === null) return;
+    if (body.bottom <= top + 2 && (body.blocked.down || body.touching.down)) return;
+    const lift = body.bottom - spr.y;
+    body.reset(spr.x, top - lift);
+    body.setVelocityY(0);
   }
 
   /** House stairs: walking into a one-tile step climbs it, so the staircases work like stairs. */
@@ -1606,7 +1674,7 @@ export class PlayScene extends Phaser.Scene {
     }
     if (!nearest) return;
     const names: Record<string, string> = {
-      door: "Enter  ·  Up / Jump",
+      door: "Enter  ·  Up",
       boss: "Boss gate  ·  400 bux  ·  Up",
       elevator: "Next floor  ·  Up",
       pc: "Station  ·  Up",
@@ -1626,9 +1694,7 @@ export class PlayScene extends Phaser.Scene {
       this.unlockLore("fake-cuboe");
       this.pop(nearest.x, nearest.y, "LORE");
     }
-    const jumpEnter =
-      this.level.isHub && actions.jumpPressed && (nearest.kind === "door" || nearest.kind === "boss");
-    if (!actions.upPressed && !jumpEnter) return;
+    if (!canEnterDoor({ upPressed: actions.upPressed })) return;
     sfx.door();
     if (nearest.kind === "door") this.scene.restart({ levelId: nearest.id });
     if (nearest.kind === "pc") emitGame({ t: "interact", kind: "pc", id: "pc" });
