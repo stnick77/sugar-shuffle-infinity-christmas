@@ -21,7 +21,7 @@ export type GameEvent =
   | { t: "pause" }
   | { t: "resume" }
   | { t: "rank"; levelId: string; rank: string; score: number }
-  | { t: "over" }
+  | { t: "over"; ending?: string }
   | { t: "win"; ending: string }
   | { t: "hub" }
   | { t: "interact"; kind: string; id: string }

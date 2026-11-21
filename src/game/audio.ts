@@ -95,6 +95,27 @@ export const sfx = {
     beep(90, 0.45, "sawtooth", 0.12, 60);
     beep(140, 0.4, "square", 0.06, -50);
   },
+  // Floor 470539758: fluorescent-light buzz (and the noclip glitch)
+  buzz: () => {
+    beep(120, 0.22, "sawtooth", 0.035, 4);
+    beep(240, 0.18, "square", 0.012, -6);
+  },
+  // the TrAppEd fOrEvEr ending: a low, uneasy fluorescent drone
+  hum: () => {
+    beep(60, 2.4, "sawtooth", 0.035, 2);
+    beep(120.6, 2.4, "triangle", 0.03, -1);
+    beep(181, 1.6, "sine", 0.015, 3);
+  },
+  // escape-chase jumpscare: a short screech (volume-capped well under the boss roar peak)
+  screech: () => {
+    beep(900, 0.7, "sawtooth", 0.07, 900);
+    beep(1340, 0.6, "square", 0.035, -500);
+    beep(180, 0.8, "sawtooth", 0.06, -60);
+    setTimeout(() => beep(1600, 0.35, "sawtooth", 0.04, -900), 160);
+  },
+  noclip: () => {
+    [0, 70, 140, 230, 330].forEach((d, i) => setTimeout(() => beep(120 + i * 37, 0.12, "sawtooth", 0.05, -40), d));
+  },
 };
 
 /**

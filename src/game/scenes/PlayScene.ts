@@ -19,7 +19,37 @@ import { HOUSE_LEVELS, drawHouseRoom, houseSpawn, isHouseLevel } from "../dlc/ho
 import { setMusicArea } from "../dlc/xmasMusic";
 import { BossRig } from "../bosses/rig";
 import { tickBrain, type BossHost, type BossMob } from "../bosses/brain";
-import { phaseFor } from "../bosses/moves";
+import { BOSS_FORMS, phaseFor } from "../bosses/moves";
+// Floor 470539758, the Backrooms (secret floor under the Floor 5 boss door)
+import {
+  BACKROOMS_BOSS,
+  BACKROOMS_ESCAPE,
+  BACKROOMS_HEAVEN,
+  CHASE,
+  CHASE_WORDS,
+  CHASE_CHECKPOINTS,
+  chaseCheckpoint,
+  TRAPPED_ENDING,
+  caught,
+  escapeRewards,
+  stepChaser,
+  BACKROOMS_ENEMIES,
+  BACKROOMS_HUB,
+  BACKROOMS_LORE,
+  BACKROOMS_NAME,
+  ENEMY_CHARS,
+  ENEMY_INFO,
+  RETURN_FLOOR,
+  discovered,
+  enterBackrooms,
+  floorDef,
+  isBackroomsRoom,
+  leaveBackrooms,
+  shouldNoclip,
+  redHubLevel,
+  redHubWatchers,
+  redHubWords,
+} from "../backrooms/backrooms";
 
 type Partner = {
   spr: Phaser.Physics.Arcade.Sprite;
@@ -68,7 +98,14 @@ const BOSS_COLOR: Record<string, number> = {
   "f4-boss": 0x6ff0ff,
   "f5-boss": 0xb48cff,
   "admin-warlords": 0x9a5cff,
+  "br-boss": 0xfff2a0,
 };
+
+/** Bacteria is drawn tall (rig scale), on the standard 96px boss hitbox. */
+const BACTERIA_SCALE = 1.25;
+
+type Mover = { img: Phaser.Physics.Arcade.Image; x0: number; y0: number; axis: "x" | "y"; amp: number; period: number };
+type Stalactite = { x: number; top: number; floor: number; tri: Phaser.GameObjects.Triangle | null; state: "hang" | "shake" | "fall" | "gone"; until: number; vy: number };
 
 export class PlayScene extends Phaser.Scene {
   private levelId = "hub-1";
@@ -131,6 +168,20 @@ export class PlayScene extends Phaser.Scene {
   private rigs: { rig: CosmeticRig; spr: () => Phaser.GameObjects.Sprite | null; facing: () => number }[] = [];
   private camTarget: Phaser.GameObjects.Zone | null = null;
   private darkness: Phaser.GameObjects.Rectangle | undefined;
+  // Floor 470539758 room features
+  private movers: Mover[] = [];
+  private moverGroup: Phaser.Physics.Arcade.Group | null = null;
+  private stalactites: Stalactite[] = [];
+  private caveDark: Phaser.GameObjects.Image | null = null;
+  private noclipping = false;
+  private moversWired = false;
+  // the escape chase after Bacteria, and its jumpscare
+  private chaser: Phaser.GameObjects.Sprite | null = null;
+  private chaserGlow: Phaser.GameObjects.Ellipse | null = null;
+  private chaseWait = 0;
+  private scaring = false;
+  private catches = 0;
+  private chaseBest = 0;
 
   constructor() {
     super("play");
@@ -147,6 +198,18 @@ export class PlayScene extends Phaser.Scene {
     this.rigs = [];
     this.camTarget = null;
     this.darkness = undefined;
+    this.movers = [];
+    this.moverGroup = null;
+    this.stalactites = [];
+    this.caveDark = null;
+    this.noclipping = false;
+    this.moversWired = false;
+    this.chaser = null;
+    this.chaserGlow = null;
+    this.chaseWait = 0;
+    this.scaring = false;
+    this.catches = 0;
+    this.chaseBest = 0;
     if (id === "hub") id = hubIdFor(floor);
     this.levelId = id;
     this.mobs = [];
@@ -218,12 +281,26 @@ export class PlayScene extends Phaser.Scene {
       this.load.spritesheet(theme.tiles, `/game/sprites/tiles/${theme.tiles}.png`, { frameWidth: 96, frameHeight: 96 });
     }
     if (room.isHub && !this.isHouse) {
-      const f = FLOORS[useGame.getState().save.floor - 1];
-      const ids = f ? [...f.levels.map((l) => l.id), f.boss.id, ...(f.id >= 5 ? ["final-run"] : [])] : [];
+      const f = floorDef(useGame.getState().save.floor);
+      const ids = f ? [...f.levels.map((l) => l.id), f.boss.id, ...(f.id === 5 ? ["final-run"] : [])] : [];
       for (const id of ids) {
         const door = themeFor(id)?.door;
         if (door) s(door, `/game/sprites/doors/${door}.png`);
       }
+      // the Backrooms: EXIT door (in its hub) and the "Floor 470539758" tear (in the Floor 5 hub)
+      s("door-br-exit", "/game/sprites/doors/door-br-exit.png");
+      s("door-br-noclip", "/game/sprites/doors/door-br-noclip.png");
+    }
+    for (const kind of BACKROOMS_ENEMIES[room.id] ?? []) sheet(kind, `/game/sprites/${kind}.png`);
+    if (room.chase || room.heaven) {
+      // the escape's own door (red EXIT at the end of the hall / the white ESCAPE door)
+      const door = themeFor(room.id)?.door;
+      if (door) s(door, `/game/sprites/doors/${door}.png`);
+    }
+    if (room.bossId === BACKROOMS_BOSS || room.id === BACKROOMS_HUB || room.chase) {
+      // the hub uses Bacteria's silhouette for the watcher in the hallways
+      sheet("bacteria", "/game/sprites/bacteria.png");
+      sheet("bacteria-void", "/game/sprites/bacteria-void.png");
     }
     if (room.bossId === "f3-boss" || room.bossId === "f4-boss") {
       // cursed Fake Candy Cuboe / Cubro (own sheets, same frame layout as the heroes)
@@ -260,7 +337,7 @@ export class PlayScene extends Phaser.Scene {
     this.level = LEVELS[this.levelId] ?? HOUSE_LEVELS[this.levelId] ?? LEVELS["hub-1"]!;
     setMusicArea(this.isHouse ? "home" : this.level.isBoss ? "boss" : this.level.isHub ? "hub" : "level");
     // each level has its own original track (hubs and the house keep the shared loop)
-    setLevelSong(this.isHouse || this.level.isHub ? null : (themeFor(this.level.id)?.song ?? null));
+    setLevelSong(this.isHouse || (this.level.isHub && !this.level.themed) ? null : (themeFor(this.level.id)?.song ?? null));
     this.label = this.level.name;
     const { w, h } = worldSize(this.level);
     const open = !this.level.isHub && !this.level.isBoss;
@@ -282,7 +359,14 @@ export class PlayScene extends Phaser.Scene {
 
     const bgKey = this.bgKey();
     const bg = this.add.image(0, 0, bgKey).setOrigin(0, 0).setDepth(-8);
-    if (this.level.isHub) {
+    if (this.level.bgSpan) {
+      // show the whole picture once across the room (it is composed for this room's size)
+      const fx = this.level.isHub ? 0.12 : 0.22;
+      const camW = this.scale.width;
+      const dw = camW + fx * Math.max(0, w - camW) + 24;
+      if (this.level.isHub) bg.setScrollFactor(fx, 0).setDisplaySize(dw, Math.max(h, 720));
+      else bg.setScrollFactor(fx, 0.08).setDisplaySize(dw, h + 80);
+    } else if (this.level.isHub) {
       bg.setScrollFactor(0.12, 0).setDisplaySize(Math.max(w, 1600), Math.max(h, 720));
     } else {
       bg.setScrollFactor(0.22, 0.08).setDisplaySize(Math.max(w, 1600), h + 80);
@@ -355,6 +439,671 @@ export class PlayScene extends Phaser.Scene {
     this.wireControlsTest();
   }
 
+  /* ---------------- Floor 470539758 (the Backrooms) ---------------- */
+
+  private brTiles() {
+    const t = themeFor(this.level.id)?.tiles;
+    return t && this.textures.exists(t) ? t : null;
+  }
+
+  /** Motion: a conveyor floor tile. Solid, and pushes whoever stands on it. */
+  private conveyor(tx: number, ty: number, dir: number) {
+    this.tileSpr(tx, ty, false);
+    const x = tx * TILE + TILE / 2;
+    const y = ty * TILE + 8;
+    const g = this.add.graphics().setDepth(1.5);
+    g.fillStyle(0xffe066, 0.9).lineStyle(2, 0x2a2010, 1);
+    for (const off of [-12, 4]) {
+      const cx = x + off * dir;
+      g.fillTriangle(cx - 6 * dir, y - 4, cx + 6 * dir, y, cx - 6 * dir, y + 4);
+      g.strokeTriangle(cx - 6 * dir, y - 4, cx + 6 * dir, y, cx - 6 * dir, y + 4);
+    }
+    this.tweens.add({ targets: g, x: 6 * dir, duration: 380, repeat: -1, ease: "Linear" });
+  }
+
+  /** Motion: a 2-tile platform that slides side to side (~) or rides up and down (^). */
+  private addMover(tx: number, ty: number, axis: "x" | "y") {
+    if (!this.moverGroup) {
+      this.moverGroup = this.physics.add.group({ allowGravity: false, immovable: true });
+    }
+    const x0 = tx * TILE + TILE;
+    const y0 = ty * TILE + 12;
+    const tiles = this.brTiles();
+    const img = (tiles ? this.physics.add.image(x0, y0, tiles, 0) : this.physics.add.image(x0, y0, "px")).setDisplaySize(TILE * 2, 24).setDepth(1.6);
+    this.moverGroup.add(img);
+    const body = img.body as Phaser.Physics.Arcade.Body;
+    body.setAllowGravity(false);
+    body.setImmovable(true);
+    body.pushable = false;
+    // a little yellow lamp strip so it reads as "this one moves"
+    const lamp = this.add.rectangle(x0, y0 + 10, TILE * 2 - 10, 3, 0xffe066, 0.9).setDepth(1.7);
+    img.setData("lamp", lamp);
+    this.movers.push({ img, x0, y0, axis, amp: axis === "x" ? TILE : TILE * 3, period: axis === "x" ? 2600 : 3400 });
+  }
+
+  private water(tx: number, ty: number) {
+    const x = tx * TILE + TILE / 2;
+    const y = ty * TILE + TILE / 2;
+    this.add.rectangle(x, y, TILE + 1, TILE + 1, 0x5fc4e8, 0.42).setDepth(6.5);
+    const above = this.level.rows[ty - 1]?.[tx] ?? ".";
+    if (above !== "w") {
+      const wave = this.add.rectangle(x, ty * TILE + 2, TILE + 1, 4, 0xdff6ff, 0.85).setDepth(6.6);
+      this.tweens.add({ targets: wave, y: ty * TILE + 5, duration: 900 + (tx % 3) * 120, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    }
+  }
+
+  private inWater(spr: Phaser.GameObjects.Sprite | undefined) {
+    if (!spr || !this.level) return false;
+    const tx = Math.floor(spr.x / TILE);
+    const ty = Math.floor(spr.y / TILE);
+    return this.level.rows[ty]?.[tx] === "w";
+  }
+
+  /** Cave System: a stalactite under the ceiling. It shakes when you are under it, then drops. */
+  private addStalactite(tx: number, ty: number) {
+    const x = tx * TILE + TILE / 2;
+    const top = ty * TILE;
+    let floor = worldSize(this.level).h;
+    for (let r = ty + 1; r < this.level.rows.length; r++) {
+      if ("#=".includes(this.level.rows[r]?.[tx] ?? ".")) {
+        floor = r * TILE;
+        break;
+      }
+    }
+    const st: Stalactite = { x, top, floor, tri: null, state: "hang", until: 0, vy: 0 };
+    st.tri = this.stalactiteShape(x, top);
+    this.stalactites.push(st);
+  }
+
+  private stalactiteShape(x: number, top: number) {
+    // drawn above the cave darkness so a falling one is always readable
+    return this.add.triangle(x, top, 0, 0, 26, 0, 13, 44, 0xb8c4d8).setOrigin(0.5, 0).setStrokeStyle(2, 0x1a1420).setDepth(8.2);
+  }
+
+  /** Per-room atmosphere: flickering lights (hub, Level 0) and cave darkness. */
+  private roomFx() {
+    if (this.level.id === "br-cave") {
+      if (!this.textures.exists("br-dark")) {
+        const W = 2560;
+        const H = 1440;
+        const tex = this.textures.createCanvas("br-dark", W, H);
+        const ctx = tex?.getContext();
+        if (tex && ctx) {
+          ctx.fillStyle = "rgba(4,3,8,1)";
+          ctx.fillRect(0, 0, W, H);
+          ctx.globalCompositeOperation = "destination-out";
+          const g = ctx.createRadialGradient(W / 2, H / 2, 150, W / 2, H / 2, 380);
+          g.addColorStop(0, "rgba(0,0,0,1)");
+          g.addColorStop(1, "rgba(0,0,0,0)");
+          ctx.fillStyle = g;
+          ctx.fillRect(0, 0, W, H);
+          tex.refresh();
+        }
+      }
+      this.caveDark = this.add.image(0, 0, "br-dark").setScrollFactor(0).setDepth(7.9).setAlpha(0.86);
+    }
+    if (this.level.id === BACKROOMS_HUB) this.redHub();
+    if (this.level.chase) this.startChase();
+    if (this.level.heaven) this.heavenFx();
+    const flicker = this.level.id === BACKROOMS_HUB || this.level.id === "br-0";
+    if (flicker) {
+      const cam = this.cameras.main;
+      const shade = this.add.rectangle(0, 0, cam.width, cam.height, 0x14100a, 0).setOrigin(0, 0).setScrollFactor(0).setDepth(7.8);
+      const strong = this.level.id === "br-0";
+      const go = () => {
+        this.time.delayedCall(Phaser.Math.Between(2200, 5200), () => {
+          if (!shade.active) return;
+          sfx.buzz();
+          const a = strong ? 0.45 : 0.25;
+          this.tweens.chain({
+            targets: shade,
+            tweens: [
+              { fillAlpha: a, duration: 50 },
+              { fillAlpha: 0.05, duration: 70 },
+              { fillAlpha: a * 0.8, duration: 60 },
+              { fillAlpha: 0, duration: 160 },
+            ],
+          });
+          go();
+        });
+      };
+      go();
+    }
+  }
+
+  /**
+   * Hayden: after you beat any Backrooms level, the hub changes when you come back —
+   * a red glow, words scrawled on the walls and something watching from a hallway.
+   * It gets stronger with every level you clear (saved: it reads save.completed).
+   */
+  private redHub() {
+    const n = redHubLevel(useGame.getState().save.completed);
+    if (n <= 0) return;
+    const cam = this.cameras.main;
+    const red = this.add.rectangle(0, 0, cam.width, cam.height, 0xff1a1a, 0.1 + 0.04 * n).setOrigin(0, 0).setScrollFactor(0).setDepth(7.7);
+    red.setBlendMode(Phaser.BlendModes.MULTIPLY);
+    const glow = this.add.rectangle(0, 0, cam.width, cam.height, 0xff2a2a, 0.05 + 0.02 * n).setOrigin(0, 0).setScrollFactor(0).setDepth(7.71);
+    this.tweens.add({ targets: [red, glow], alpha: { from: 1, to: 0.7 }, duration: Math.max(260, 900 - n * 150), yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    // the words sit on the wallpaper (same parallax as the background), above the doors
+    const bgW = this.scale.width + 0.12 * Math.max(0, worldSize(this.level).w - this.scale.width) + 24;
+    const sx = bgW / 1470;
+    redHubWords(n).forEach((w, i) => {
+      const t = this.add
+        .text(w.x * sx, w.y, w.text, { fontFamily: "Lilita One, Impact, sans-serif", fontSize: `${w.size}px`, color: "#c4161c", stroke: "#4a0508", strokeThickness: 3 })
+        .setOrigin(0.5)
+        .setAngle(w.angle)
+        .setAlpha(0.88)
+        .setScrollFactor(0.12, 0)
+        .setDepth(-7);
+      // drips under the letters
+      const g = this.add.graphics().setScrollFactor(0.12, 0).setDepth(-7.1);
+      g.fillStyle(0xa8121a, 0.8);
+      for (let k = 0; k < 3 + (i % 3); k++) g.fillRect(t.x - t.width / 2 + ((k * 37 + i * 13) % Math.max(10, t.width)), t.y + w.size * 0.35, 3, 10 + ((k * 7 + i * 5) % 22));
+    });
+    // something stands far back in a hallway opening; it vanishes when you get close
+    if (!this.textures.exists("bacteria")) return;
+    for (const d of redHubWatchers(n)) {
+      const x = d.x * sx;
+      const e = this.add.sprite(x, d.feet, "bacteria", 0).setOrigin(0.5, 1).setDisplaySize(d.size, d.size).setTint(0x120608).setAlpha(0.92).setScrollFactor(0.12, 0).setDepth(-7.2);
+      const eyes = this.add.text(x + 1, d.feet - d.size * 0.89, "• •", { fontFamily: "Arial", fontSize: "9px", color: "#ff4040" }).setOrigin(0.5).setScrollFactor(0.12, 0).setDepth(-7.15);
+      let gone = false;
+      const ev = this.time.addEvent({
+        delay: 120,
+        loop: true,
+        callback: () => {
+          if (gone || !this.player?.active) return;
+          // screen position of the doorway vs the hero
+          const screenX = x - cam.scrollX * 0.12;
+          if (Math.abs(this.player.x - cam.scrollX - screenX) < 170) {
+            gone = true;
+            sfx.buzz();
+            this.tweens.add({ targets: [e, eyes], alpha: 0, duration: 140, onComplete: () => { e.destroy(); eyes.destroy(); ev.remove(); } });
+          }
+        },
+      });
+    }
+  }
+
+  private tickRoomFx(dt: number) {
+    const now = this.time.now;
+    this.tickChase(dt);
+    // moving platforms: velocity-driven so riders are carried along
+    for (const mv of this.movers) {
+      const t = (now % mv.period) / mv.period;
+      const body = mv.img.body as Phaser.Physics.Arcade.Body;
+      if (mv.axis === "x") {
+        const target = mv.x0 + mv.amp * Math.sin(t * Math.PI * 2);
+        body.setVelocity((target - mv.img.x) / Math.max(dt, 1 / 120), 0);
+      } else {
+        const target = mv.y0 + (mv.amp * (1 - Math.cos(t * Math.PI * 2))) / 2;
+        body.setVelocity(0, (target - mv.img.y) / Math.max(dt, 1 / 120));
+      }
+      const lamp = mv.img.getData("lamp") as Phaser.GameObjects.Rectangle | undefined;
+      lamp?.setPosition(mv.img.x, mv.img.y + 10);
+    }
+    if (this.moverGroup && !this.moversWired) {
+      this.moversWired = true;
+      this.physics.add.collider(this.player, this.moverGroup, undefined, (p, plat) => {
+        const pb = (p as Phaser.Physics.Arcade.Sprite).body as Phaser.Physics.Arcade.Body;
+        const mb = (plat as Phaser.Physics.Arcade.Image).body as Phaser.Physics.Arcade.Body;
+        if (this.dropT > 0) return false;
+        // one-way: only land from above
+        return pb.prev.y + pb.height <= mb.prev.y + 14;
+      });
+      for (const m of this.mobs) if (m.kind === "br-chair") this.physics.add.collider(m.spr, this.moverGroup);
+    }
+    // conveyors push whoever stands on them
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    if (body.blocked.down || body.touching.down) {
+      const row = this.level.rows[Math.floor((body.bottom + 4) / TILE)];
+      const ch = row?.[Math.floor(this.player.x / TILE)];
+      if (ch === ">" || ch === "<") this.player.x += (ch === ">" ? 1 : -1) * 140 * dt;
+    }
+    // cave darkness follows you
+    if (this.caveDark) {
+      const cam = this.cameras.main;
+      this.caveDark.setPosition(this.player.x - cam.scrollX, this.player.y - cam.scrollY);
+    }
+    for (const st of this.stalactites) this.tickStalactite(st, dt, now);
+  }
+
+  private tickStalactite(st: Stalactite, dt: number, now: number) {
+    const tri = st.tri;
+    if (st.state === "hang" && tri) {
+      if (Math.abs(this.player.x - st.x) < 60 && this.player.y > st.top && this.player.y < st.floor + 10) {
+        st.state = "shake";
+        st.until = now + 520; // the tell: it shakes for half a second
+        this.tweens.add({ targets: tri, x: st.x + 3, duration: 45, yoyo: true, repeat: 5 });
+        tri.setFillStyle(0xe8f0ff);
+      }
+    } else if (st.state === "shake" && tri) {
+      if (now >= st.until) {
+        st.state = "fall";
+        st.vy = 0;
+        tri.setX(st.x);
+        this.hazards.push(tri);
+      }
+    } else if (st.state === "fall" && tri) {
+      st.vy = Math.min(900, st.vy + 1800 * dt);
+      tri.y += st.vy * dt;
+      if (tri.y + 44 >= st.floor) {
+        this.dust.emitParticleAt(st.x, st.floor - 4, 8);
+        tri.destroy();
+        st.tri = null;
+        st.state = "gone";
+        st.until = now + 2600;
+      }
+    } else if (st.state === "gone" && now >= st.until) {
+      st.tri = this.stalactiteShape(st.x, st.top);
+      st.tri.setScale(1, 0.1);
+      this.tweens.add({ targets: st.tri, scaleY: 1, duration: 400 });
+      st.state = "hang";
+    }
+  }
+
+  private spawnBackroomsMob(x: number, y: number, kind: string) {
+    const info = ENEMY_INFO[kind]!;
+    const spr = this.physics.add.sprite(x, y, kind, 0);
+    spr.setDisplaySize(kind === "br-spore" ? 44 : 56, kind === "br-spore" ? 44 : 56);
+    const body = spr.body as Phaser.Physics.Arcade.Body;
+    body.setSize(70, 80).setOffset(29, 40);
+    spr.setData("home", { x, y });
+    spr.setDepth(kind === "br-moth" ? 2.5 : 5);
+    if (info.flies) {
+      body.setAllowGravity(false);
+    } else {
+      spr.setCollideWorldBounds(true);
+      body.setGravityY(2200);
+      this.physics.add.collider(spr, this.solids);
+      this.physics.add.collider(spr, this.oneWay);
+    }
+    if (this.anims.exists(`${kind}-walk`)) spr.play(`${kind}-walk`);
+    this.mobs.push({ spr, kind, dir: Math.random() > 0.5 ? 1 : -1, hp: info.hp, next: this.time.now + Phaser.Math.Between(400, 1400) });
+  }
+
+  private tickBackroomsMob(m: Mob, body: Phaser.Physics.Arcade.Body, now: number, hard: number) {
+    const info = ENEMY_INFO[m.kind]!;
+    const home = m.spr.getData("home") as { x: number; y: number };
+    const spd = info.speed * hard;
+    switch (m.kind) {
+      case "br-moth": {
+        // flutter in loops around its light
+        const t = now / 1000 + home.x * 0.01;
+        m.spr.setPosition(home.x + Math.sin(t * 1.3) * 60, home.y + Math.sin(t * 2.6) * 22);
+        m.dir = Math.cos(t * 1.3) >= 0 ? 1 : -1;
+        break;
+      }
+      case "br-smiler": {
+        // drifts back and forth in the wallpaper, bobbing
+        if (m.spr.x > home.x + 140) m.dir = -1;
+        if (m.spr.x < home.x - 140) m.dir = 1;
+        body.setVelocity(m.dir * spd, Math.sin(now / 380 + home.x) * 40);
+        break;
+      }
+      case "br-chair": {
+        body.setVelocityX(m.dir * spd);
+        if (body.blocked.left) m.dir = 1;
+        if (body.blocked.right) m.dir = -1;
+        m.spr.setAngle(Math.sin(now / 90) * 3);
+        break;
+      }
+      case "br-duck": {
+        body.setVelocityX(m.dir * spd);
+        if (body.blocked.left) m.dir = 1;
+        if (body.blocked.right) m.dir = -1;
+        if (Math.abs(m.spr.x - home.x) > 150) m.dir = m.spr.x > home.x ? -1 : 1;
+        if (body.blocked.down && now > m.next) {
+          m.next = now + 1100;
+          body.setVelocityY(-460);
+        }
+        break;
+      }
+      case "br-hound": {
+        // walk; when you are close and level with it: crouch (the tell), then charge
+        const state = String(m.spr.getData("st") ?? "walk");
+        const until = Number(m.spr.getData("until") ?? 0);
+        const dx = this.player.x - m.spr.x;
+        if (state === "walk") {
+          body.setVelocityX(m.dir * spd);
+          if (body.blocked.left) m.dir = 1;
+          if (body.blocked.right) m.dir = -1;
+          if (now > m.next && Math.abs(dx) < 300 && Math.abs(this.player.y - m.spr.y) < 70) {
+            m.dir = dx < 0 ? -1 : 1;
+            m.spr.setData("st", "crouch").setData("until", now + 600);
+            m.spr.setTint(0xb48cff);
+            body.setVelocityX(0);
+            this.pop(m.spr.x, m.spr.y - 50, "!");
+          }
+        } else if (state === "crouch") {
+          body.setVelocityX(0);
+          m.spr.setScale(m.spr.scaleX, Math.abs(m.spr.scaleX) * 0.85);
+          if (now > until) m.spr.setData("st", "charge").setData("until", now + 850);
+        } else {
+          m.spr.setScale(m.spr.scaleX, Math.abs(m.spr.scaleX));
+          m.spr.clearTint();
+          body.setVelocityX(m.dir * 330 * hard);
+          if (now > until || body.blocked.left || body.blocked.right) {
+            m.spr.setData("st", "walk");
+            m.next = now + 1800;
+          }
+        }
+        break;
+      }
+      case "br-spore": {
+        m.dir = this.player.x < m.spr.x ? -1 : 1;
+        body.setVelocityX(m.dir * spd);
+        break;
+      }
+    }
+  }
+
+  /** The secret: phase through the floor at the final boss door into Floor 470539758. */
+  private noclip() {
+    if (this.noclipping) return;
+    this.noclipping = true;
+    this.frozen = true;
+    setInjected([]);
+    const save = useGame.getState().save;
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    body.setVelocity(0, 0).setAcceleration(0, 0);
+    body.setAllowGravity(false);
+    body.checkCollision.none = true;
+    this.player.setDepth(0.5); // behind the floor tiles: you sink into them
+    // a glowing yellow tear in the floor under your feet
+    const fx = this.player.x;
+    const fy = (this.player.body as Phaser.Physics.Arcade.Body).bottom;
+    const tear = this.add.graphics().setDepth(1.5);
+    tear.fillStyle(0xfff3a0, 0.95);
+    tear.fillPoints(
+      [
+        { x: fx - 46, y: fy },
+        { x: fx - 24, y: fy - 5 },
+        { x: fx - 8, y: fy + 4 },
+        { x: fx + 10, y: fy - 6 },
+        { x: fx + 28, y: fy + 3 },
+        { x: fx + 46, y: fy },
+        { x: fx + 30, y: fy + 12 },
+        { x: fx + 6, y: fy + 8 },
+        { x: fx - 16, y: fy + 14 },
+        { x: fx - 34, y: fy + 7 },
+      ],
+      true,
+    );
+    const halo = this.add.ellipse(fx, fy - 30, 120, 150, 0xffe066, 0.25).setDepth(0.45);
+    this.tweens.add({ targets: [tear, halo], alpha: { from: 1, to: 0.4 }, duration: 80, yoyo: true, repeat: -1 });
+    const cam = this.cameras.main;
+    cam.stopFollow();
+    cam.shake(1700, 0.006);
+    sfx.noclip();
+    this.pop(this.player.x, this.player.y - 70, "...?");
+    emitGame({ t: "toast", text: "You phased through the floor..." });
+    this.time.addEvent({ delay: 280, repeat: 6, callback: () => sfx.buzz() });
+    this.time.addEvent({
+      delay: 60,
+      repeat: 30,
+      callback: () => {
+        const colors = [0xe8d67a, 0xfff6b0, 0x9a8a3a, 0x14100a];
+        const r = this.add
+          .rectangle(cam.scrollX + Math.random() * cam.width, cam.scrollY + Math.random() * cam.height, 40 + Math.random() * 260, 6 + Math.random() * 26, colors[Math.floor(Math.random() * colors.length)]!, 0.75)
+          .setDepth(40);
+        this.time.delayedCall(150, () => r.destroy());
+      },
+    });
+    this.tweens.add({ targets: this.player, alpha: { from: 1, to: 0.2 }, duration: 70, yoyo: true, repeat: 12 });
+    this.tweens.add({ targets: this.player, y: this.player.y + 210, duration: 1500, delay: 300, ease: "Quad.easeIn" });
+    this.time.delayedCall(1600, () => cam.fadeOut(550, 232, 214, 120));
+    this.time.delayedCall(2200, () => {
+      useGame.getState().persist(enterBackrooms(save));
+      emitGame({ t: "toast", text: `${BACKROOMS_NAME}` });
+      this.scene.restart({ levelId: BACKROOMS_HUB });
+    });
+  }
+
+  /** Floor 5 hub: the tear back down (after you've found the Backrooms once). */
+  private enterBackroomsDoor() {
+    this.frozen = true;
+    sfx.noclip();
+    useGame.getState().persist(enterBackrooms(useGame.getState().save));
+    this.cameras.main.fadeOut(400, 232, 214, 120);
+    this.time.delayedCall(420, () => this.scene.restart({ levelId: BACKROOMS_HUB }));
+  }
+
+  /** Backrooms hub EXIT: back up to Floor 5. */
+  private leaveBackroomsDoor() {
+    this.frozen = true;
+    useGame.getState().persist(leaveBackrooms());
+    this.cameras.main.fadeOut(300, 20, 12, 8);
+    this.time.delayedCall(320, () => this.scene.restart({ levelId: hubIdFor(RETURN_FLOOR) }));
+  }
+
+  /* ---------------- the escape chase ---------------- */
+
+  private floorY() {
+    return this.exitPt.y + TILE / 2;
+  }
+
+  private startChase() {
+    const cam = this.cameras.main;
+    // red-lit hallway: a flickering red wash over everything
+    const red = this.add.rectangle(0, 0, cam.width, cam.height, 0xff2020, 0.16).setOrigin(0, 0).setScrollFactor(0).setDepth(7.7);
+    red.setBlendMode(Phaser.BlendModes.MULTIPLY);
+    this.tweens.add({ targets: red, alpha: { from: 1, to: 0.55 }, duration: 140, yoyo: true, repeat: -1, repeatDelay: 900, ease: "Stepped" });
+    // scrawled words along the walls
+    const fy = this.floorY();
+    CHASE_WORDS.forEach((w, i) => {
+      const t = this.add
+        .text(w.col * TILE, fy - 250 - (i % 2) * 40, w.text, { fontFamily: "Lilita One, Impact, sans-serif", fontSize: "40px", color: "#e01822", stroke: "#3a0406", strokeThickness: 4 })
+        .setOrigin(0.5)
+        .setAngle(i % 2 ? 4 : -5)
+        .setAlpha(0.9)
+        .setDepth(-6);
+      const g = this.add.graphics().setDepth(-6.1);
+      g.fillStyle(0xb0121a, 0.85);
+      for (let k = 0; k < 5; k++) g.fillRect(t.x - t.width / 2 + ((k * 41 + i * 17) % Math.max(10, t.width)), t.y + 16, 3, 12 + ((k * 9 + i * 5) % 26));
+    });
+    // checkpoints: a little green emergency light on the wall
+    for (const c of CHASE_CHECKPOINTS.slice(1)) {
+      const x = c * TILE + TILE / 2;
+      const lamp = this.add.rectangle(x, fy - 150, 34, 14, 0x3ce07a, 1).setStrokeStyle(2, 0x0d2a16).setDepth(-5);
+      this.tweens.add({ targets: lamp, alpha: 0.5, duration: 600, yoyo: true, repeat: -1 });
+      this.add.text(x, fy - 172, "SAFE", { fontFamily: "Lilita One, Impact, sans-serif", fontSize: "14px", color: "#bfffd2" }).setOrigin(0.5).setDepth(-5);
+    }
+    // Bacteria, a little way behind you
+    if (this.textures.exists("bacteria")) {
+      this.chaserGlow = this.add.ellipse(0, fy - 80, 190, 220, 0xff1010, 0.2).setDepth(4.9);
+      this.chaser = this.add.sprite(0, fy, "bacteria", 0).setOrigin(0.5, 118 / 128).setDisplaySize(190, 190).setDepth(5);
+      if (this.anims.exists("bacteria-idle")) this.chaser.play("bacteria-idle");
+      this.tweens.add({ targets: this.chaserGlow, alpha: 0.06, duration: 300, yoyo: true, repeat: -1 });
+    }
+    this.resetChaser();
+    this.pop(this.player.x, this.player.y - 70, "RUN!");
+  }
+
+  private chaseSpot() {
+    const col = chaseCheckpoint(this.chaseBest);
+    return col === 0 ? this.spawn : { x: col * TILE + TILE / 2, y: this.spawn.y };
+  }
+
+  private resetChaser() {
+    if (!this.chaser) return;
+    this.chaser.x = this.chaseSpot().x - CHASE.restartGap;
+    this.chaserGlow?.setX(this.chaser.x);
+    this.chaseWait = CHASE.graceMs / 1000;
+  }
+
+  private tickChase(dt: number) {
+    if (!this.chaser || this.scaring) return;
+    const col = Math.floor(this.player.x / TILE);
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    if (col > this.chaseBest && body.blocked.down) {
+      const before = chaseCheckpoint(this.chaseBest);
+      this.chaseBest = col;
+      if (chaseCheckpoint(col) > before) {
+        sfx.pickup();
+        this.pop(this.player.x, this.player.y - 70, "CHECKPOINT");
+      }
+    }
+    if (this.chaseWait > 0) {
+      this.chaseWait -= dt;
+      return;
+    }
+    this.chaser.x = stepChaser(this.chaser.x, this.player.x, dt);
+    this.chaser.y = this.floorY() + Math.sin(this.time.now / 90) * 3;
+    this.chaserGlow?.setPosition(this.chaser.x, this.floorY() - 80);
+    if (caught(this.chaser.x, this.player.x)) this.catchPlayer();
+  }
+
+  /** Bacteria got you: jumpscare (if on), lose a life, the chase restarts. */
+  private catchPlayer() {
+    this.scaring = true;
+    this.catches += 1;
+    setInjected([]);
+    (this.player.body as Phaser.Physics.Arcade.Body).setVelocity(0, 0);
+    this.physics.world.pause();
+    this.lives -= 1;
+    this.damaged = true;
+    this.pushHud();
+    this.jumpscare(() => {
+      this.physics.world.resume();
+      this.scaring = false;
+      if (this.lives <= 0) {
+        this.gameOver();
+        return;
+      }
+      this.hp = this.maxHp;
+      this.respawn();
+      this.invulnT = 1;
+      this.pop(this.player.x, this.player.y - 70, "RUN!");
+    });
+  }
+
+  /**
+   * Bacteria's face zooms up to fill the screen: shake, red flash and a short screech
+   * (about 1 s), then a fade to the retry. Off in Options/Pause ("Jumpscares") = just a red flash.
+   */
+  private jumpscare(done: () => void) {
+    const cam = this.cameras.main;
+    const settings = useGame.getState().save.settings;
+    if (settings.jumpscares === false) {
+      cam.flash(220, 200, 20, 20);
+      sfx.hurt();
+      this.pop(this.player.x, this.player.y - 60, "CAUGHT!");
+      this.time.delayedCall(600, done);
+      return;
+    }
+    const cx = cam.width / 2;
+    const cy = cam.height / 2;
+    const dim = this.add.rectangle(0, 0, cam.width, cam.height, 0x000000, 0.92).setOrigin(0, 0).setScrollFactor(0).setDepth(80);
+    const face = this.add.container(cx, cy).setScrollFactor(0).setDepth(81);
+    const g = this.add.graphics();
+    // soft red haze around a black void head
+    for (let k = 4; k >= 1; k--) g.fillStyle(0xb01010, 0.07).fillEllipse(0, 0, 300 + k * 26, 380 + k * 26);
+    g.fillStyle(0x050304, 1).fillEllipse(0, 0, 300, 380);
+    // glowing eyes (soft rings of light, then the eye)
+    for (const sx of [-62, 62]) {
+      for (let k = 4; k >= 1; k--) g.fillStyle(0xfff2b0, 0.08).fillEllipse(sx, -60, 62 + k * 12, 40 + k * 10);
+      g.fillStyle(0xffffff, 1).fillEllipse(sx, -60, 62, 40);
+      g.fillStyle(0x200808, 1).fillCircle(sx, -58, 9);
+    }
+    // the big glowing grin
+    for (let k = 3; k >= 1; k--) {
+      g.lineStyle(k * 7, 0xfff6d0, 0.1);
+      g.strokePoints([{ x: -110, y: 40 }, { x: 110, y: 40 }, { x: 70, y: 100 }, { x: -70, y: 100 }], true);
+    }
+    g.fillStyle(0xffffff, 1);
+    g.beginPath();
+    g.moveTo(-110, 40);
+    g.lineTo(110, 40);
+    g.lineTo(70, 100);
+    g.lineTo(-70, 100);
+    g.closePath();
+    g.fillPath();
+    g.lineStyle(4, 0x1a0606, 1);
+    for (let k = -4; k <= 4; k++) g.lineBetween(k * 22, 42, k * 17, 98);
+    g.lineBetween(-100, 70, 100, 70);
+    face.add(g);
+    face.setScale(0.12);
+    this.tweens.add({ targets: face, scale: 1.9, duration: 360, ease: "Back.easeOut" });
+    this.tweens.add({ targets: face, x: { from: cx - 6, to: cx + 6 }, duration: 40, yoyo: true, repeat: 12, delay: 360 });
+    if (settings.shake) cam.shake(800, 0.02);
+    cam.flash(260, 255, 30, 30);
+    sfx.screech();
+    this.time.delayedCall(820, () => cam.fadeOut(200, 0, 0, 0));
+    this.time.delayedCall(1040, () => {
+      dim.destroy();
+      face.destroy();
+      cam.fadeIn(260, 0, 0, 0);
+      done();
+    });
+  }
+
+  /** The end of the hallway: step through the EXIT, then fall into the light. */
+  private chaseExit() {
+    if (this.frozen) return;
+    this.frozen = true;
+    setInjected([]);
+    const body = this.player.body as Phaser.Physics.Arcade.Body;
+    body.setVelocity(0, 0).setAllowGravity(false);
+    body.checkCollision.none = true;
+    this.chaser?.setVisible(false);
+    this.chaserGlow?.setVisible(false);
+    sfx.door();
+    const cam = this.cameras.main;
+    cam.stopFollow();
+    this.tweens.add({ targets: this.player, x: this.exitPt.x, alpha: 0.5, duration: 220 });
+    this.time.delayedCall(260, () => {
+      sfx.noclip();
+      cam.flash(300, 255, 250, 220);
+      this.tweens.add({ targets: this.player, y: this.player.y + 520, angle: 540, scale: 0.4, duration: 1100, ease: "Quad.easeIn" });
+      cam.fadeOut(1000, 255, 252, 236);
+    });
+    this.time.delayedCall(1400, () => this.scene.restart({ levelId: BACKROOMS_HEAVEN }));
+  }
+
+  /** The heaven room: soft light rays, drifting sparkles, a white fade in while you float down. */
+  private heavenFx() {
+    const cam = this.cameras.main;
+    cam.fadeIn(1200, 255, 252, 236);
+    const w = worldSize(this.level).w;
+    const rays = this.add.graphics().setDepth(-5).setBlendMode(Phaser.BlendModes.ADD);
+    for (let i = 0; i < 7; i++) {
+      const x = (i + 0.5) * (w / 7);
+      rays.fillStyle(0xfff2c0, 0.1);
+      rays.fillTriangle(x - 20, 0, x + 20, 0, x + 140, this.floorYHeaven());
+      rays.fillTriangle(x - 20, 0, x - 140, this.floorYHeaven(), x + 140, this.floorYHeaven());
+    }
+    this.tweens.add({ targets: rays, alpha: { from: 1, to: 0.5 }, duration: 2400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+    this.time.addEvent({
+      delay: 160,
+      loop: true,
+      callback: () => {
+        const p = this.add.circle(Math.random() * w, this.floorYHeaven() - Math.random() * 60, 2 + Math.random() * 3, 0xfff1a8, 0.9).setDepth(3);
+        this.tweens.add({ targets: p, y: p.y - 260 - Math.random() * 200, alpha: 0, duration: 2600 + Math.random() * 1400, onComplete: () => p.destroy() });
+      },
+    });
+    this.pop(this.player.x, this.player.y + 120, "...it's so bright");
+  }
+
+  private floorYHeaven() {
+    const ty = this.level.rows.findIndex((r) => r.includes("Y"));
+    return ty < 0 ? worldSize(this.level).h : (ty + 1) * TILE;
+  }
+
+  /** The ESCAPE door: rewards, then Floor 5 or Cuboe & Cubro's House (picked on the next screen). */
+  private escapeDoor() {
+    if (this.frozen) return;
+    this.frozen = true;
+    const rank = rankFromScore(4000 + Math.max(0, this.lives) * 1500, false, 0);
+    const save = useGame.getState().save;
+    const hadLore = save.lore.includes(BACKROOMS_LORE);
+    useGame.getState().persist(escapeRewards(save, rank));
+    if (!hadLore) this.pop(this.player.x, this.player.y - 40, "SECRET LORE");
+    sfx.win();
+    this.cameras.main.flash(500, 255, 255, 255);
+    this.tweens.add({ targets: this.player, alpha: 0, duration: 500 });
+    this.time.delayedCall(550, () => emitGame({ t: "rank", levelId: BACKROOMS_ESCAPE, rank, score: 4000 + Math.max(0, this.lives) * 1500 }));
+  }
+
   private bgKey() {
     return bgKeyFor(this.level.bg);
   }
@@ -391,6 +1140,9 @@ export class PlayScene extends Phaser.Scene {
     mk("warlord-1-idle", "warlord-1", 6, -1);
     mk("warlord-2-idle", "warlord-2", 6, -1);
     mk("warlord-3-idle", "warlord-3", 6, -1);
+    for (const kind of Object.keys(ENEMY_INFO)) if (this.textures.exists(kind)) mk(`${kind}-walk`, kind, kind === "br-moth" ? 14 : 8, -1);
+    if (this.textures.exists("bacteria")) mk("bacteria-idle", "bacteria", 6, -1);
+    if (this.textures.exists("bacteria-void")) mk("bacteria-void-idle", "bacteria-void", 6, -1);
   }
 
   private tileSpr(tx: number, ty: number, oneWay: boolean) {
@@ -405,7 +1157,7 @@ export class PlayScene extends Phaser.Scene {
         this.add.rectangle(x, y - TILE / 2 + 3, TILE + 1, 6, 0xe0a060).setDepth(1);
         this.add.rectangle(x - TILE / 2 + 1, y, 2, TILE, 0x4a2a18).setDepth(1);
       } else img = this.add.rectangle(x, y, TILE, TILE, 0x000000, 0);
-    } else if (this.level.isHub) {
+    } else if (this.level.isHub && !this.level.themed) {
       const rec = this.add.rectangle(x, y, TILE + 1, TILE + 1, 0x3a2214).setDepth(1);
       this.add.rectangle(x, y - TILE / 2 + 3, TILE + 1, 6, 0xc47a3a).setDepth(1);
       img = rec;
@@ -414,7 +1166,7 @@ export class PlayScene extends Phaser.Scene {
       if (theme && this.textures.exists(theme.tiles)) {
         // surface frame where the cell above is open, fill frame under another tile
         const above = this.level.rows[ty - 1]?.[tx] ?? ".";
-        const frame = above === "#" || above === "=" ? 1 : 0;
+        const frame = "#=<>".includes(above) ? 1 : 0;
         img = this.add.image(x, y, theme.tiles, frame).setDisplaySize(TILE + 1, TILE + 1).setDepth(1);
       } else {
         const key = this.level.ground === "marsh" ? "ground-marsh" : "ground-candy";
@@ -480,9 +1232,34 @@ export class PlayScene extends Phaser.Scene {
       const x = tx * TILE + TILE / 2;
       const y = ty * TILE + TILE / 2;
       if (ch === "#" || (ch === "|" && this.isHouse)) this.tileSpr(tx, ty, false);
+      else if (ch === "<" || ch === ">") this.conveyor(tx, ty, ch === ">" ? 1 : -1);
+      else if (ch === "~" || ch === "^") this.addMover(tx, ty, ch === "~" ? "x" : "y");
+      else if (ch === "w") this.water(tx, ty);
+      else if (ch === "v") this.addStalactite(tx, ty);
+      else if (ENEMY_CHARS[ch]) this.spawnMob(x, y, ENEMY_CHARS[ch]!);
+      else if (ch === "O") {
+        this.interactives.push({ kind: "brexit", id: "brexit", x, y });
+        this.drawDoor(x, y, `FLOOR ${RETURN_FLOOR}`, "room", undefined, "door-br-exit");
+      } else if (ch === "N") {
+        // the way back down, once you have found it
+        if (discovered(useGame.getState().save)) {
+          this.interactives.push({ kind: "tear", id: BACKROOMS_HUB, x, y });
+          this.drawDoor(x, y, BACKROOMS_NAME, "room", undefined, "door-br-noclip");
+        }
+      }
       else if (ch === "=") this.tileSpr(tx, ty, true);
       else if (ch === "S") this.spawn = { x: Math.max(x, 96), y: y - 8 };
       else if (ch === "X") this.exitPt = { x, y };
+      else if (ch === "Y") {
+        // the big white ESCAPE door in the heaven room
+        this.interactives.push({ kind: "escape", id: "escape", x, y });
+        const bottom = y + TILE / 2 - 4;
+        const glow = this.add.ellipse(x, bottom - 70, 170, 210, 0xfff1b0, 0.45).setDepth(1.9);
+        this.tweens.add({ targets: glow, alpha: 0.18, scale: 1.1, duration: 1400, yoyo: true, repeat: -1, ease: "Sine.easeInOut" });
+        const door = themeFor(this.level.id)?.door;
+        if (door && this.textures.exists(door)) this.add.image(x, bottom, door).setOrigin(0.5, 1).setDisplaySize(92, 144).setDepth(2);
+        this.marker(x, bottom - 158, "ESCAPE");
+      }
       else if (ch === "c" || ch === "l") {
         const xk = this.xmasLevel() ? collectableForCandy(candyIdx) : null;
         candyIdx++;
@@ -506,8 +1283,9 @@ export class PlayScene extends Phaser.Scene {
       else if (ch === "B") {
         if (this.level.isBoss) this.spawnBoss(x, y);
         else {
-          this.interactives.push({ kind: "boss", id: `f${floor}-boss`, x, y });
-          this.drawDoor(x, y, "BOSS", "boss", undefined, themeFor(`f${floor}-boss`)?.door);
+          const bossId = floorDef(floor)?.boss.id ?? `f${floor}-boss`;
+          this.interactives.push({ kind: "boss", id: bossId, x, y });
+          this.drawDoor(x, y, "BOSS", "boss", undefined, themeFor(bossId)?.door);
         }
       } else if (ch === "P") {
         this.interactives.push({ kind: "pc", id: "pc", x, y });
@@ -515,7 +1293,7 @@ export class PlayScene extends Phaser.Scene {
       } else if (ch === "E") {
         this.interactives.push({ kind: "elevator", id: "next", x, y });
         // Floor 5's elevator leads to the final run: show the Rotting Pumpkin door there.
-        if (floor >= 5) this.drawDoor(x, y, "FINAL", "up", undefined, themeFor("final-run")?.door);
+        if (floor === 5) this.drawDoor(x, y, "FINAL", "up", undefined, themeFor("final-run")?.door);
         else this.drawDoor(x, y, "UP", "up");
       } else if (ch === "T") {
         const id = `treasure-${this.levelId}`;
@@ -542,18 +1320,19 @@ export class PlayScene extends Phaser.Scene {
         this.marker(x, y - 52, "TV");
       } else if (ch >= "1" && ch <= "4") {
         const idx = Number(ch) - 1;
-        const room = FLOORS[floor - 1]?.levels[idx];
+        const room = floorDef(floor)?.levels[idx];
         this.interactives.push({ kind: "door", id: room?.id ?? `f${floor}-${ch}`, x, y });
         const short = (room?.name ?? ch).replace(/^(Candy Corn |Marsh Mellow |Lolly Pop |Butter Scotch |Sugar Rush |Cookie War |Sour |Raisin |Smash |Drunk |Scotch |Licorice |Cube |Sloppy |Ruin Pizza |Time Bomb |Grave )/i, "").trim();
         const accents = [0xff8a3a, 0xffc0d8, 0xff4d7a, 0xe8b84a];
         this.drawDoor(x, y, short || ch, "room", accents[idx], room ? themeFor(room.id)?.door : undefined);
       }
     });
-    if (!this.level.isHub && !this.level.isBoss) {
-      this.drawDoor(this.exitPt.x, this.exitPt.y, "EXIT", "exit");
-      this.drawStartFlag();
+    if (!this.level.isHub && !this.level.isBoss && !this.level.heaven) {
+      this.drawDoor(this.exitPt.x, this.exitPt.y, "EXIT", "exit", undefined, this.level.chase ? themeFor(this.level.id)?.door : undefined);
+      if (!this.level.chase) this.drawStartFlag();
       this.buildPits();
     }
+    this.roomFx();
   }
 
   /** Start flag: where Sugar Time sends you back to. */
@@ -582,13 +1361,15 @@ export class PlayScene extends Phaser.Scene {
     const ty = rows.length - 1;
     const floor = rows[ty]!;
     let tx = 0;
+    // moving platforms (~ ^) sit over open floor, so they count as gaps
+    const open = (c: string | undefined) => c === "." || c === "~" || c === "^";
     while (tx < floor.length) {
-      if (floor[tx] !== ".") {
+      if (!open(floor[tx])) {
         tx++;
         continue;
       }
       let end = tx;
-      while (end < floor.length && floor[end] === ".") end++;
+      while (end < floor.length && open(floor[end])) end++;
       const len = end - tx;
       if (len > PIT_MAX_TILES) {
         for (let i = tx; i < end; i++) this.tileSpr(i, ty + 1, false);
@@ -794,6 +1575,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private spawnMob(x: number, y: number, kind: string) {
+    if (ENEMY_INFO[kind]) return this.spawnBackroomsMob(x, y, kind);
     const key = kind === "cannon" ? "props" : kind;
     const spr = this.physics.add.sprite(x, y, key, 0);
     spr.setDisplaySize(kind === "cannon" ? 52 : 56, kind === "cannon" ? 40 : 56);
@@ -831,7 +1613,13 @@ export class PlayScene extends Phaser.Scene {
     // Fake Cubro / Fake Cuboe: cursed sheets + aura, floating cursed bits and a glitch flicker.
     const cursed = id === "f3-boss" || id === "f4-boss";
     // Admin Warlords draw at 120px like their hitbox size (other bosses: 128px frames at 0.75 = 96px).
-    const rig = new BossRig(this, spr, { cursed, scale: id === ADMIN_BOSS_ID ? 120 / 128 : undefined });
+    const bacteria = id === BACKROOMS_BOSS;
+    const rig = new BossRig(this, spr, {
+      cursed,
+      scale: id === ADMIN_BOSS_ID ? 120 / 128 : bacteria ? BACTERIA_SCALE : undefined,
+      // feet sit 10 source px above the frame bottom
+      drop: bacteria ? 10 * BACTERIA_SCALE : undefined,
+    });
     const m: Mob = { spr, kind: "boss", dir: -1, hp: info.lives, next: this.time.now + 2000, rig };
     this.mobs.push(m);
     this.label = info.name;
@@ -860,7 +1648,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   update(_t: number, delta: number) {
-    if (this.frozen) return;
+    if (this.frozen || this.scaring) return;
     const dt = Math.min(delta, 50) / 1000;
     if (this.comboT > 0) {
       this.comboT -= dt;
@@ -895,6 +1683,7 @@ export class PlayScene extends Phaser.Scene {
       return;
     }
     this.controlPlayer(actions, dt);
+    this.tickRoomFx(dt);
     if (this.partner) this.controlPartner(dt);
     this.tickMobs();
     this.tickHazards();
@@ -943,6 +1732,7 @@ export class PlayScene extends Phaser.Scene {
     const walk = 260 * speedMul;
     const run = (this.hero === "cubro" ? 560 : 480) * speedMul;
     const max = this.burstT > 0 ? 760 * speedMul : this.speedT > 0 ? 640 * speedMul : wantRun ? run : walk;
+    const swim = this.inWater(this.player);
     const accel = grounded ? 3200 : 1800;
     if (actions.moveX !== 0) {
       body.setAccelerationX(actions.moveX * accel);
@@ -952,12 +1742,30 @@ export class PlayScene extends Phaser.Scene {
       body.setVelocityX(body.velocity.x * (grounded ? 0.78 : 0.94));
       this.mach = Math.max(0, this.mach - dt * 1.4);
     }
-    if (Math.abs(body.velocity.x) > max) body.setVelocityX(max * Math.sign(body.velocity.x));
+    const cap = swim ? max * 0.6 : max; // Pool Rooms water slows you down
+    if (Math.abs(body.velocity.x) > cap) body.setVelocityX(cap * Math.sign(body.velocity.x));
 
     const vy = body.velocity.y;
-    if (vy > 0) body.setGravityY(3400);
+    if (swim) body.setGravityY(vy > 0 ? 300 : 700);
+    else if (vy > 0) body.setGravityY(3400);
     else if (vy > -90) body.setGravityY(1200);
     else body.setGravityY(1900);
+    if (this.level.heaven && vy > 0) {
+      // drifting down into the heaven room like a feather
+      body.setGravityY(260);
+      if (vy > 260) body.setVelocityY(260);
+    }
+    if (swim) {
+      // safe water: sink slowly, Jump is a swim stroke (works anywhere in the pool)
+      if (body.velocity.y > 170) body.setVelocityY(170);
+      if (this.jumpBuf > 0 && this.dropT <= 0) {
+        body.setVelocityY(-600);
+        this.jumpBuf = 0;
+        this.coyote = 0;
+        sfx.jump();
+        this.player.play(`${this.hero}-jump`, true);
+      }
+    }
 
     if (this.isHouse && grounded && actions.moveX !== 0 && !actions.jump) this.stepUp(this.player, actions.moveX);
 
@@ -1498,6 +2306,10 @@ export class PlayScene extends Phaser.Scene {
         continue;
       }
       const hard = this.hero === "candy-cube" ? 1.2 : 1;
+      if (ENEMY_INFO[m.kind]) {
+        this.tickBackroomsMob(m, body, now, hard);
+        if (ENEMY_INFO[m.kind]!.harmless) continue; // hub moths are just ambience
+      } else {
       const spd = (m.kind === "nincube" ? 90 : m.kind === "pump" ? 55 : 70) * hard;
       if (m.kind !== "cannon") body.setVelocityX(m.dir * spd);
       if (body.blocked.left) m.dir = 1;
@@ -1510,6 +2322,7 @@ export class PlayScene extends Phaser.Scene {
         }
       }
       if (m.kind === "pump" && body.blocked.down && Math.random() < 0.01) body.setVelocityY(-420);
+      }
       if (this.hurtT <= 0 && this.shieldT <= 0 && this.invulnT <= 0 && this.player.active) {
         const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, m.spr.x, m.spr.y);
         if (dist < 40) {
@@ -1573,6 +2386,16 @@ export class PlayScene extends Phaser.Scene {
     this.trauma = Math.min(1, this.trauma + 0.5);
     this.cameras.main.flash(120, 255, 240, 200);
     sfx.bossRoar();
+    const form = BOSS_FORMS[id]?.[p];
+    if (form && m.spr.texture.key !== form.sprite && this.textures.exists(form.sprite)) {
+      // Bacteria <-> Void: a new sheet, same frames
+      m.spr.setTexture(form.sprite, 0);
+      if (this.anims.exists(`${form.sprite}-idle`)) m.spr.play(`${form.sprite}-idle`);
+      this.label = form.name;
+      m.rig?.burst(m.spr.x, m.spr.y - 60, 30);
+      this.cameras.main.flash(260, 20, 0, 40);
+      this.pop(m.spr.x, m.spr.y - 150, form.name === "Void" ? "VOID" : "BACTERIA RETURNS");
+    }
     this.pop(m.spr.x, m.spr.y - 110, p === 3 ? "FINAL PHASE!" : "PHASE 2!");
     // a short roar pause before the new moves
     m.next = Math.max(m.next, this.time.now + 700);
@@ -1609,10 +2432,10 @@ export class PlayScene extends Phaser.Scene {
       shake: (n) => {
         this.trauma = Math.min(1, this.trauma + n);
       },
-      summon: (x) => {
+      summon: (x, kind = "boxguy") => {
         const alive = this.mobs.filter((mm) => mm.kind !== "boss" && mm.spr.active).length;
         if (alive >= 2) return false;
-        this.spawnMob(x, floorTop - 26, "boxguy");
+        this.spawnMob(x, floorTop - 26, kind);
         return true;
       },
       sound: (k) => {
@@ -1886,9 +2709,7 @@ export class PlayScene extends Phaser.Scene {
     if (this.hp <= 0) {
       this.lives -= 1;
       if (this.lives <= 0) {
-        this.frozen = true;
-        sfx.lose();
-        emitGame({ t: "over" });
+        this.gameOver();
         return;
       }
       this.hp = this.maxHp;
@@ -1898,9 +2719,28 @@ export class PlayScene extends Phaser.Scene {
 
   /** Back to the start, or to the exit door once Sugar Time is racing home (so a pit or death can't finish the room). */
   private respawn() {
-    const at = this.goal === "start" ? { x: this.exitPt.x, y: this.exitPt.y - 8 } : this.spawn;
+    let at = this.goal === "start" ? { x: this.exitPt.x, y: this.exitPt.y - 8 } : this.spawn;
+    // the chase: back to the last checkpoint you passed, not the very start
+    if (this.level.chase) at = this.chaseSpot();
     // reset() moves the body too; setPosition alone leaves it below the floor and it falls through.
     (this.player.body as Phaser.Physics.Arcade.Body).reset(at.x, at.y);
+    this.resetChaser();
+  }
+
+  /**
+   * Out of lives. On Floor 470539758 (hub, rooms, Bacteria, the chase) that is the
+   * "TrAppEd fOrEvEr" ending first; the usual game over (lives refill) follows it.
+   */
+  private gameOver() {
+    this.frozen = true;
+    sfx.lose();
+    if (isBackroomsRoom(this.levelId)) {
+      const save = useGame.getState().save;
+      if (!save.endings.includes(TRAPPED_ENDING)) useGame.getState().persist({ endings: [...save.endings, TRAPPED_ENDING] });
+      emitGame({ t: "over", ending: TRAPPED_ENDING });
+      return;
+    }
+    emitGame({ t: "over" });
   }
 
   private fallOut() {
@@ -1911,7 +2751,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private tickGoal() {
-    if (this.level.isHub || this.level.isBoss) return;
+    if (this.level.isHub || this.level.isBoss || this.level.heaven) return;
     const target = this.goal === "exit" ? this.exitPt : this.spawn;
     // A tall box, so running or jumping through the door / start flag still counts.
     // The start sits at the left wall and the exit door at the right wall, so overshooting
@@ -1920,6 +2760,10 @@ export class PlayScene extends Phaser.Scene {
     const past = (this.goal === "start" ? dx < 0 : dx > 0) && Math.abs(this.player.y - target.y) <= 160;
     if (!past && (Math.abs(dx) > 56 || Math.abs(this.player.y - target.y) > 96)) return;
     if (this.goal === "exit") {
+      if (this.level.chase) {
+        this.chaseExit();
+        return;
+      }
       if (this.level.isFinal) {
         this.escapePumpkin();
         return;
@@ -1971,7 +2815,7 @@ export class PlayScene extends Phaser.Scene {
 
   private tickInteract(actions: ReturnType<typeof readActions>) {
     this.prompt = "";
-    if (!this.level.isHub && !this.level.isBoss) {
+    if (!this.level.isHub && !this.level.isBoss && !this.level.heaven) {
       this.tickSecrets();
       return;
     }
@@ -1994,8 +2838,12 @@ export class PlayScene extends Phaser.Scene {
       rift: "Strange rift  ·  Up",
       metroid: "Metroid platform  ·  Attack",
       tv: "It's Me  ·  Up",
+      brexit: `Back to Floor ${RETURN_FLOOR}  ·  Up`,
+      tear: `${BACKROOMS_NAME}  ·  Up`,
+      escape: "ESCAPE  ·  Up",
     };
     this.prompt = names[nearest.kind] ?? "Up";
+    if (nearest.kind === "boss" && nearest.id === BACKROOMS_BOSS) this.prompt = "Bacteria  ·  Up";
     if (nearest.kind.startsWith("home-")) {
       this.prompt = `${nearest.label ?? "Look"}  ·  Up`;
       if (actions.upPressed) this.useHouseThing(nearest);
@@ -2021,6 +2869,9 @@ export class PlayScene extends Phaser.Scene {
     }
     if (nearest.kind === "boss") this.tryBoss();
     if (nearest.kind === "elevator") this.tryElevator();
+    if (nearest.kind === "brexit") this.leaveBackroomsDoor();
+    if (nearest.kind === "tear") this.enterBackroomsDoor();
+    if (nearest.kind === "escape") this.escapeDoor();
   }
 
   private useHouseThing(it: { kind: string; id: string; x: number; y: number; label?: string }) {
@@ -2093,13 +2944,18 @@ export class PlayScene extends Phaser.Scene {
 
   private tryBoss() {
     const floor = useGame.getState().save.floor;
-    const f = FLOORS[floor - 1]!;
+    const f = floorDef(floor)!;
+    // the secret: holding any lore, the final boss door drops you into the Backrooms (once)
+    if (shouldNoclip(useGame.getState().save, f.boss.id)) {
+      this.noclip();
+      return;
+    }
     const done = f.levels.filter((l) => useGame.getState().save.completed.includes(l.id)).length;
     if (done < 4) {
       this.pop(this.player.x, this.player.y - 30, "Clear all 4 rooms");
       return;
     }
-    if (useGame.getState().save.candyBux < f.keyCost) {
+    if (f.keyCost > 0 && useGame.getState().save.candyBux < f.keyCost) {
       this.pop(this.player.x, this.player.y - 30, `${f.keyCost} candy bux`);
       return;
     }
@@ -2109,7 +2965,7 @@ export class PlayScene extends Phaser.Scene {
 
   private tryElevator() {
     const floor = useGame.getState().save.floor;
-    const f = FLOORS[floor - 1]!;
+    const f = floorDef(floor)!;
     if (!useGame.getState().save.bosses.includes(f.boss.id)) {
       this.pop(this.player.x, this.player.y - 30, "Beat the floor boss");
       return;
@@ -2150,6 +3006,18 @@ export class PlayScene extends Phaser.Scene {
     if (id === "f2-boss" && this.incoming > 0 && this.blocked / this.incoming >= 0.5) this.unlockLore("outlaw");
     if (id === "f3-boss" && !this.damaged) this.unlockLore("fake-cubro");
     const rank = rankFromScore(this.score + 3000, this.damaged, 0);
+    if (id === BACKROOMS_BOSS) {
+      // Bacteria goes down... and gets back up. Run! (the reward waits at the end of the chase)
+      const s2 = useGame.getState().save;
+      useGame.getState().persist({ ranks: { ...s2.ranks, [id]: rank } });
+      sfx.win();
+      this.pop(this.player.x, this.player.y - 60, "...IT'S GETTING UP");
+      emitGame({ t: "toast", text: "Bacteria is getting back up. RUN!" });
+      this.cameras.main.shake(900, 0.008);
+      this.time.delayedCall(1100, () => this.cameras.main.fadeOut(400, 120, 10, 10));
+      this.time.delayedCall(1550, () => this.scene.restart({ levelId: BACKROOMS_ESCAPE }));
+      return;
+    }
     sfx.win();
     emitGame({ t: "rank", levelId: id, rank, score: this.score + 3000 });
   }
@@ -2313,6 +3181,15 @@ export class PlayScene extends Phaser.Scene {
           xmasPickups: pk.filter((c) => c.getData("xmas")).length,
           xmasList: pk.filter((c) => c.getData("xmas")).map((c) => ({ kind: String(c.getData("xmas")), x: c.x, y: c.y })),
           things: this.interactives.map((i) => ({ kind: i.kind, id: i.id, x: i.x, y: i.y, label: i.label })),
+          label: this.label,
+          noclipping: this.noclipping,
+          mobs: this.mobs.filter((mm) => mm.spr.active).map((mm) => ({ kind: mm.kind, x: mm.spr.x, y: mm.spr.y })),
+          movers: this.movers.length,
+          stalactites: this.stalactites.length,
+          chaser: this.chaser ? { x: this.chaser.x, wait: this.chaseWait } : null,
+          catches: this.catches,
+          scaring: this.scaring,
+          swimming: this.inWater(this.player),
     };
   }
 

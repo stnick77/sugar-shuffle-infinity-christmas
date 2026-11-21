@@ -195,6 +195,30 @@ export function CollectableTally() {
 }
 
 /** DLC options menu: Christmas music, song picker, co-op, home, December gift. */
+/** Options: the Floor 470539758 chase jumpscare can be switched off (default on). */
+function JumpscareToggle() {
+  const settings = useGame((s) => s.save.settings);
+  const persist = useGame((s) => s.persist);
+  const on = settings.jumpscares !== false;
+  return (
+    <section className="flex items-center justify-between gap-3 rounded-2xl border border-cream/10 p-3">
+      <div>
+        <p className="font-display text-xl">Jumpscares</p>
+        <p className="text-xs text-cream-dim">When Bacteria catches you in the escape chase. Off = just a red flash.</p>
+      </div>
+      <XBtn
+        tone={on ? "solid" : "ghost"}
+        onClick={() => {
+          sfx.ui();
+          persist({ settings: { ...settings, jumpscares: !on } });
+        }}
+      >
+        {on ? "On" : "Off"}
+      </XBtn>
+    </section>
+  );
+}
+
 export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; onHome: () => void; inGame: boolean }) {
   const x = useGame((s) => s.save.dlc.xmas);
   const [, force] = useState(0);
@@ -268,6 +292,8 @@ export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; 
             })}
           </div>
         </section>
+
+        <JumpscareToggle />
 
         <section className="flex items-center justify-between gap-3 rounded-2xl border border-cream/10 p-3">
           <div>
