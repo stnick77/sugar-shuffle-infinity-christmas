@@ -4,7 +4,7 @@ import { MAX_FALL_SPEED, canEnterDoor, capFallSpeed, landingFloorTop, shouldLand
 import { LEVELS, eachCell, hubIdFor, worldSize, type LevelDef } from "../data/levels";
 import { BOSSES, FLOORS, HEROES, rankFromScore, type HeroId } from "../data/world";
 import { ADMIN_BOSS_ID, ADMIN_PHASE_HP, usesCuboeKit } from "../hayden/content";
-import { nextAdminPhase, patternAt, type AdminPhase } from "../bosses/adminWarlords";
+import { ADMIN_POWERS, freezeSpeedMul, inFreeze, nextAdminPhase, patternAt, powerAt, powerDue, teleportTarget, type AdminPhase, type AdminPowerId } from "../bosses/adminWarlords";
 import { emitGame } from "../bus";
 import { bootInput, pollGamepad, readActions, readActionsP2, setCoopInput, setInjected } from "../input";
 import { sfx } from "../audio";
@@ -116,6 +116,10 @@ export class PlayScene extends Phaser.Scene {
   private holeT = 0;
   private invulnT = 0;
   private speedT = 0;
+  /** Admin Warlords "Freeze": seconds left of the 30% slow. */
+  private freezeT = 0;
+  /** Admin power warning markers / glitch static, cleared on phase change and defeat. */
+  private adminFx: Phaser.GameObjects.GameObject[] = [];
   private kills = 0;
   private startMark?: Phaser.GameObjects.Text;
   private dust!: Phaser.GameObjects.Particles.ParticleEmitter;
@@ -146,6 +150,8 @@ export class PlayScene extends Phaser.Scene {
     this.levelId = id;
     this.mobs = [];
     this.hazards = [];
+    this.freezeT = 0;
+    this.adminFx = [];
     this.bossHost = null;
     this.interactives = [];
     this.pizza = false;
@@ -833,6 +839,7 @@ export class PlayScene extends Phaser.Scene {
     if (this.dropT > 0) this.dropT -= dt;
     if (this.holeT > 0) this.holeT -= dt;
     if (this.invulnT > 0) this.invulnT -= dt;
+    if (this.freezeT > 0) this.freezeT -= dt;
     if (this.speedT > 0) this.speedT -= dt;
     if (this.trauma > 0) {
       this.trauma = Math.max(0, this.trauma - dt * 2.2);
@@ -898,7 +905,7 @@ export class PlayScene extends Phaser.Scene {
     }
 
     const wantRun = actions.run || this.hero === "cubro";
-    const speedMul = HEROES[this.hero].speed ?? 1;
+    const speedMul = (HEROES[this.hero].speed ?? 1) * freezeSpeedMul(this.freezeT > 0);
     const walk = 260 * speedMul;
     const run = (this.hero === "cubro" ? 560 : 480) * speedMul;
     const max = this.burstT > 0 ? 760 * speedMul : this.speedT > 0 ? 640 * speedMul : wantRun ? run : walk;
@@ -935,6 +942,7 @@ export class PlayScene extends Phaser.Scene {
 
     if (this.shieldT > 0) this.player.setTint(0x9ad7ff);
     else if (this.hurtT > 0) this.player.setTint(0xff6677);
+    else if (this.freezeT > 0) this.player.setTint(0x9fe8ff);
     else if (this.burstT > 0) this.player.setTint(0xffe066);
     else if (this.invulnT > 0) this.player.setTint(0xffffff);
     else {
@@ -1184,6 +1192,8 @@ export class PlayScene extends Phaser.Scene {
       else m.spr.setTexture(key);
     }
     m.spr.setDisplaySize(120, 120);
+    this.clearAdminFx();
+    m.rig?.fade(1, 150); // a teleport wind-up may have faded them
     this.hazards.forEach((h) => h.destroy());
     this.hazards = [];
     this.shots.getChildren().forEach((c) => {
@@ -1222,6 +1232,20 @@ export class PlayScene extends Phaser.Scene {
     const attacks = Number(m.spr.getData("attacks") ?? 0);
     const pat = patternAt(phase, attacks);
     const move = String(m.spr.getData("move") ?? "");
+    if (!move && powerDue(phase, Number(m.spr.getData("sincePower") ?? 0))) {
+      this.startAdminPower(m, phase, now);
+      return;
+    }
+    if (move === "power") {
+      if (now < Number(m.spr.getData("moveUntil") ?? 0)) return;
+      const id = String(m.spr.getData("power")) as AdminPowerId;
+      this.runAdminPower(m, id);
+      m.spr.setData("move", "");
+      m.spr.setData("sincePower", 0);
+      m.spr.setData("powers", Number(m.spr.getData("powers") ?? 0) + 1);
+      m.next = now + ADMIN_POWERS[id].recoverMs;
+      return;
+    }
     if (!move) {
       m.spr.setData("move", "tell");
       m.spr.setData("moveUntil", now + pat.telegraphMs);
@@ -1264,14 +1288,136 @@ export class PlayScene extends Phaser.Scene {
       if (now < Number(m.spr.getData("moveUntil") ?? 0)) return;
       m.spr.setData("move", "");
       m.spr.setData("attacks", attacks + 1);
+      m.spr.setData("sincePower", Number(m.spr.getData("sincePower") ?? 0) + 1);
       this.openBoss(m, pat.openMs);
       m.next = now + pat.openMs + 80;
+    }
+  }
+
+  private clearAdminFx() {
+    this.adminFx.forEach((o) => o.destroy());
+    this.adminFx = [];
+  }
+
+  private adminFloorY(x: number) {
+    return this.arenaFloorTop(x);
+  }
+
+  /** Admin power wind-up: yellow boss, "!" overhead, "ADMIN: ..." pop-up and a marker where it will hit. */
+  private startAdminPower(m: Mob, phase: AdminPhase, now: number) {
+    const id = powerAt(phase, Number(m.spr.getData("powers") ?? 0));
+    const p = ADMIN_POWERS[id];
+    m.spr.setData("move", "power");
+    m.spr.setData("power", id);
+    m.spr.setData("moveUntil", now + p.warnMs);
+    m.rig?.telegraph(0xffe066, p.warnMs);
+    sfx.bossWarn();
+    this.pop(m.spr.x, m.spr.y - 120, p.popup);
+    const w = worldSize(this.level).w;
+    const pulse = (o: Phaser.GameObjects.Shape) => {
+      o.setDepth(6);
+      this.adminFx.push(o);
+      this.tweens.add({ targets: o, alpha: { from: 0.9, to: 0.35 }, duration: 140, yoyo: true, repeat: -1 });
+      return o;
+    };
+    if (id === "teleport") {
+      const tx = teleportTarget(this.player.x, TILE * 4, w - TILE * 4);
+      m.spr.setData("powerX", tx);
+      pulse(this.add.ellipse(tx, this.adminFloorY(tx) - 4, 100, 20, 0x9a5cff, 0.5).setStrokeStyle(3, 0xffe066, 1));
+      m.rig?.fade(0.35, p.warnMs);
+    } else if (id === "spawn") {
+      const xs = [-150, 150].map((dx) => Phaser.Math.Clamp(this.player.x + dx, TILE * 3, w - TILE * 3));
+      m.spr.setData("powerXs", xs);
+      for (const x of xs) pulse(this.add.ellipse(x, this.adminFloorY(x) - 4, 60, 14, 0xff46c4, 0.5).setStrokeStyle(3, 0xffe066, 1));
+    } else if (id === "banhammer") {
+      const x = this.player.x;
+      const floor = this.adminFloorY(x);
+      m.spr.setData("powerX", x);
+      pulse(this.add.rectangle(x, floor / 2, ADMIN_POWERS.banhammer.width, floor, 0xffe066, 0.18).setStrokeStyle(4, 0xffe066, 1));
+    } else if (id === "freeze") {
+      m.spr.setData("powerX", this.player.x);
+      m.spr.setData("powerY", this.player.y);
+      pulse(this.add.circle(this.player.x, this.player.y, ADMIN_POWERS.freeze.radius, 0x9fe8ff, 0.15).setStrokeStyle(4, 0xffe066, 1));
+    }
+  }
+
+  private runAdminPower(m: Mob, id: AdminPowerId) {
+    this.clearAdminFx();
+    if (id === "teleport") {
+      const tx = Number(m.spr.getData("powerX") ?? m.spr.x);
+      const ty = this.adminFloorY(tx) - BOSS_FEET;
+      m.rig?.burst(m.spr.x, m.spr.y - 20, 18);
+      (m.spr.body as Phaser.Physics.Arcade.Body).reset(tx, ty);
+      m.dir = this.player.x < tx ? -1 : 1;
+      m.rig?.fade(1, 220);
+      m.rig?.burst(tx, ty - 20, 18);
+      this.cameras.main.flash(90, 154, 92, 255);
+      sfx.bossWhoosh();
+    } else if (id === "spawn") {
+      const xs = (m.spr.getData("powerXs") as number[] | undefined) ?? [];
+      for (const x of xs) {
+        const alive = this.mobs.filter((mm) => mm.kind !== "boss" && mm.spr.active).length;
+        if (alive >= ADMIN_POWERS.spawn.maxAlive) break;
+        this.spawnMob(x, this.adminFloorY(x) - 26, "boxguy");
+        m.rig?.burst(x, this.adminFloorY(x) - 20, 10);
+      }
+      sfx.bossZap();
+    } else if (id === "glitch") {
+      // Screen static only: controls are untouched.
+      const cam = this.cameras.main;
+      const bars = Array.from({ length: 14 }, () =>
+        this.add.rectangle(0, 0, 10, 10, 0x9a5cff, 0.3).setOrigin(0, 0).setScrollFactor(0).setDepth(40),
+      );
+      bars.forEach((b) => this.adminFx.push(b));
+      const colors = [0x9a5cff, 0x7dff3a, 0xff3ccf, 0x8be9ff, 0x000000];
+      const shuffle = () => {
+        for (const b of bars) {
+          if (!b.active) continue;
+          b.setPosition(Math.random() * cam.width, Math.random() * cam.height);
+          b.setSize(40 + Math.random() * cam.width * 0.5, 3 + Math.random() * 14);
+          b.setFillStyle(colors[Math.floor(Math.random() * colors.length)]!, 0.22 + Math.random() * 0.2);
+        }
+      };
+      shuffle();
+      const ev = this.time.addEvent({ delay: 60, repeat: Math.floor(ADMIN_POWERS.glitch.durationMs / 60), callback: shuffle });
+      cam.shake(ADMIN_POWERS.glitch.durationMs, 0.003);
+      this.time.delayedCall(ADMIN_POWERS.glitch.durationMs, () => {
+        ev.remove();
+        bars.forEach((b) => b.destroy());
+      });
+      sfx.bossZap();
+    } else if (id === "banhammer") {
+      const b = ADMIN_POWERS.banhammer;
+      const x = Number(m.spr.getData("powerX") ?? this.player.x);
+      const floor = this.adminFloorY(x);
+      const col = this.add.rectangle(x, floor / 2, b.width, floor, 0x9a5cff, 0.9).setStrokeStyle(4, 0xfff4b0, 1).setDepth(8);
+      col.setScale(1, 0.05);
+      this.tweens.add({ targets: col, scaleY: 1, duration: 90, ease: "Quad.easeIn" });
+      this.hazards.push(col);
+      this.trauma = Math.min(1, this.trauma + 0.5);
+      sfx.bossSlam();
+      this.time.delayedCall(b.activeMs, () => {
+        if (!col.active) return;
+        this.tweens.add({ targets: col, alpha: 0, duration: 200, onComplete: () => col.destroy() });
+      });
+    } else if (id === "freeze") {
+      const f = ADMIN_POWERS.freeze;
+      const cx = Number(m.spr.getData("powerX") ?? this.player.x);
+      const cy = Number(m.spr.getData("powerY") ?? this.player.y);
+      const burst = this.add.circle(cx, cy, f.radius, 0x9fe8ff, 0.55).setDepth(8);
+      this.tweens.add({ targets: burst, alpha: 0, scale: 1.2, duration: 380, onComplete: () => burst.destroy() });
+      if (inFreeze(this.player.x, this.player.y, cx, cy) && this.shieldT <= 0 && this.invulnT <= 0) {
+        this.freezeT = f.durationMs / 1000;
+        this.pop(this.player.x, this.player.y - 50, "FROZEN!");
+      }
+      sfx.bossZap();
     }
   }
 
   /** Boss KO: stop the fight, clear its attacks, play the defeat burst, then the rank screen. */
   private defeatBoss(m: Mob) {
     m.dying = true;
+    this.clearAdminFx();
     m.spr.setData("move", "");
     const body = m.spr.body as Phaser.Physics.Arcade.Body;
     body.setVelocity(0, 0);
@@ -1313,7 +1459,7 @@ export class PlayScene extends Phaser.Scene {
           flash: !!m.spr.getData("flash"),
           open: !!m.spr.getData("open"),
           busy: !!m.spr.getData("move"),
-          warn: m.spr.getData("move") === "tell",
+          warn: m.spr.getData("move") === "tell" || m.spr.getData("move") === "power",
         });
         continue;
       }

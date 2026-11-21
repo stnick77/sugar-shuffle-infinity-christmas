@@ -91,3 +91,61 @@ describe("Credits", () => {
     assert.ok(!all.some((n) => /dylon/i.test(n)));
   });
 });
+
+import {
+  ADMIN_POWERS,
+  ADMIN_POWER_EVERY,
+  freezeSpeedMul,
+  inFreeze,
+  powerAt,
+  powerDue,
+  powersFor,
+  teleportTarget,
+} from "../bosses/adminWarlords.ts";
+
+describe("Admin Warlords admin powers", () => {
+  it("phase 1 teleports; phase 2 adds spawn + glitch; phase 3 adds ban hammer + freeze", () => {
+    assert.deepEqual(powersFor(1), ["teleport"]);
+    assert.deepEqual([...powersFor(2)].sort(), ["glitch", "spawn", "teleport"]);
+    assert.deepEqual([...powersFor(3)].sort(), ["banhammer", "freeze", "glitch", "spawn", "teleport"]);
+    for (const ph of [1, 2, 3] as const) for (const id of powersFor(ph)) assert.ok(ADMIN_POWERS[id].from <= ph);
+    assert.equal(powerAt(1, 5), "teleport");
+    assert.equal(powerAt(3, 0), "banhammer");
+  });
+
+  it("every power is telegraphed and announced as ADMIN: ...", () => {
+    for (const p of Object.values(ADMIN_POWERS)) {
+      assert.ok(p.warnMs >= 500, `${p.id} warning too short`);
+      assert.match(p.popup, /^ADMIN: [A-Z ]+$/);
+    }
+  });
+
+  it("powers come more often each phase", () => {
+    assert.ok(ADMIN_POWER_EVERY[1] >= ADMIN_POWER_EVERY[2] && ADMIN_POWER_EVERY[2] >= ADMIN_POWER_EVERY[3]);
+    assert.equal(powerDue(1, 2), false);
+    assert.equal(powerDue(1, 3), true);
+    assert.equal(powerDue(3, 2), true);
+  });
+
+  it("ban hammer can be walked out of in time, even as slow Candy Cube (234 px/s walk)", () => {
+    const b = ADMIN_POWERS.banhammer;
+    const escapePx = b.width / 2 + 24; // half the column + half a hero body
+    assert.ok((escapePx / 234) * 1000 < b.warnMs, "warning must be longer than the walk out");
+  });
+
+  it("teleport lands far from the player", () => {
+    assert.equal(teleportTarget(200, 150, 1750), 1750);
+    assert.equal(teleportTarget(1700, 150, 1750), 150);
+    assert.ok(Math.abs(teleportTarget(950, 150, 1750) - 950) >= ADMIN_POWERS.teleport.minDist);
+  });
+
+  it("freeze: 30% slower for 1.5 s, only inside the burst; glitch never touches controls", () => {
+    assert.equal(freezeSpeedMul(true), 0.7);
+    assert.equal(freezeSpeedMul(false), 1);
+    assert.equal(ADMIN_POWERS.freeze.durationMs, 1500);
+    assert.ok(inFreeze(10, 10, 0, 0));
+    assert.ok(!inFreeze(200, 0, 0, 0));
+    assert.ok(ADMIN_POWERS.glitch.durationMs <= 1500);
+    assert.ok(!("reverse" in ADMIN_POWERS.glitch));
+  });
+});

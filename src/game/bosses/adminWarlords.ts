@@ -212,3 +212,77 @@ export function patternHasSafeLane(p: AdminPattern): boolean {
   }
   return false;
 }
+
+/* -------------------------------------------------------------------------- */
+/* Admin powers (Hayden: "give this boss admin powers")                        */
+/* -------------------------------------------------------------------------- */
+
+export type AdminPowerId = "teleport" | "spawn" | "glitch" | "banhammer" | "freeze";
+
+export interface AdminPower {
+  id: AdminPowerId;
+  name: string;
+  /** Pop-up shown the moment the warning starts. */
+  popup: string;
+  /** First phase that uses it. */
+  from: AdminPhase;
+  /** Yellow warning (boss tint, "!" and a marker where it will land) before it happens. */
+  warnMs: number;
+  /** Pause after it happens before the next volley. */
+  recoverMs: number;
+}
+
+export const ADMIN_POWERS = {
+  /** Blinks to the far side of the arena, never closer than `minDist` to you. */
+  teleport: { id: "teleport", name: "Teleport", popup: "ADMIN: TELEPORT", from: 1, warnMs: 600, recoverMs: 350, minDist: 220 },
+  /** Drops `count` minions (never more than `maxAlive` at once) where the floor markers flash. */
+  spawn: { id: "spawn", name: "Spawn minions", popup: "ADMIN: SPAWN", from: 2, warnMs: 700, recoverMs: 300, count: 2, maxAlive: 2 },
+  /** Screen static for `durationMs`. Visual only: controls are never changed. */
+  glitch: { id: "glitch", name: "Glitch", popup: "ADMIN: GLITCH", from: 2, warnMs: 500, recoverMs: 200, durationMs: 1200 },
+  /** A column slams down where you stood when the warning started. */
+  banhammer: { id: "banhammer", name: "Ban hammer", popup: "ADMIN: BAN HAMMER", from: 3, warnMs: 900, recoverMs: 350, width: 96, activeMs: 350, damage: 1 },
+  /** Frost burst where you stood; inside it you move `slow` slower for `durationMs`. */
+  freeze: { id: "freeze", name: "Freeze", popup: "ADMIN: FREEZE", from: 3, warnMs: 800, recoverMs: 300, radius: 96, slow: 0.3, durationMs: 1500 },
+} as const satisfies Record<AdminPowerId, AdminPower & Record<string, unknown>>;
+
+/** Volleys between powers: fewer each phase, so later phases use powers more often. */
+export const ADMIN_POWER_EVERY: Record<AdminPhase, number> = { 1: 3, 2: 2, 3: 2 };
+
+/** Power rotation per phase (each phase adds new ones). */
+export function powersFor(phase: AdminPhase): AdminPowerId[] {
+  if (phase === 1) return ["teleport"];
+  if (phase === 2) return ["spawn", "teleport", "glitch"];
+  return ["banhammer", "freeze", "teleport", "glitch", "spawn"];
+}
+
+export function powerAt(phase: AdminPhase, n: number): AdminPowerId {
+  const list = powersFor(phase);
+  return list[((n % list.length) + list.length) % list.length]!;
+}
+
+export function powerDue(phase: AdminPhase, volleysSincePower: number): boolean {
+  return volleysSincePower >= ADMIN_POWER_EVERY[phase];
+}
+
+/**
+ * Where a teleport lands: the arena end farther from the player, kept at
+ * least `minDist` away from them (clamped to [minX, maxX]).
+ */
+export function teleportTarget(playerX: number, minX: number, maxX: number, minDist: number = ADMIN_POWERS.teleport.minDist): number {
+  const left = minX;
+  const right = maxX;
+  const far = Math.abs(playerX - left) >= Math.abs(playerX - right) ? left : right;
+  if (Math.abs(far - playerX) >= minDist) return far;
+  // Arena too small for minDist: the far end is still the safest spot.
+  return far;
+}
+
+/** Inside the frost burst? */
+export function inFreeze(px: number, py: number, cx: number, cy: number, radius: number = ADMIN_POWERS.freeze.radius): boolean {
+  return Math.hypot(px - cx, py - cy) <= radius;
+}
+
+/** Speed multiplier while frozen. */
+export function freezeSpeedMul(frozen: boolean): number {
+  return frozen ? 1 - ADMIN_POWERS.freeze.slow : 1;
+}
