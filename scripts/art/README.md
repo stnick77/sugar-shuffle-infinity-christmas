@@ -19,3 +19,16 @@ Rebuild the art with (Cubro first, because the cursed fakes are made from his fr
 (`PYTHONHASHSEED` keeps the per-frame glitch the same each time.)
 
 In the game, `src/game/bosses/rig.ts` adds a dark aura, floating cursed bits and a short glitch flicker for the fakes.
+
+## Hayden's drawings (November 2026)
+
+`make-hayden-sprites.py` builds Candy Cube sheets, Admin Warlord portraits, the
+Admin orb projectile, the credits Cuboe + Cubro drawing, and the small
+code-drawn elf hat / candle icons from the cutouts in `assets/hayden/cutouts/`.
+
+The character, boss, orb, and credits art is Hayden's. Candy Cube animation
+frames are affine transforms of his standing pose only. The elf hat and candle
+icon are simple geometric PNGs drawn in that script (same convention as the
+doors above), not AI and not third-party art.
+
+Rebuild: `python3 scripts/art/make-hayden-sprites.py`

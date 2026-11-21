@@ -9,13 +9,9 @@ import { sfx, unlockAudio } from "@/game/audio";
 import { HEROES, type HeroId } from "@/game/data/world";
 import {
   COLLECTABLES,
-  DECEMBER_GIFT_ID,
   DLC_TITLE,
   HOME_NAME,
-  cosmeticById,
   cosmeticsFor,
-  dlcNow,
-  isDecember,
   isEquipped,
   isOwned,
   toggleDlc,
@@ -38,7 +34,16 @@ export function useXmasOn() {
 }
 
 /** One 128px frame of a 2x2 sprite sheet as a CSS background. */
-export function XIcon({ sheet, frame, size = 40 }: { sheet: "xmas-pickups" | "xmas-cosmetics"; frame: number; size?: number }) {
+export function XIcon({
+  sheet,
+  frame,
+  size = 40,
+}: {
+  sheet: "xmas-pickups" | "xmas-cosmetics" | "hayden-cosmetics";
+  frame: number;
+  size?: number;
+}) {
+  const twoByOne = sheet === "hayden-cosmetics";
   return (
     <span
       aria-hidden
@@ -47,8 +52,10 @@ export function XIcon({ sheet, frame, size = 40 }: { sheet: "xmas-pickups" | "xm
         width: size,
         height: size,
         backgroundImage: `url('/game/sprites/${sheet}.png')`,
-        backgroundSize: "200% 200%",
-        backgroundPosition: `${frame % 2 ? "100%" : "0%"} ${frame >= 2 ? "100%" : "0%"}`,
+        backgroundSize: twoByOne ? "200% 100%" : "200% 200%",
+        backgroundPosition: twoByOne
+          ? `${frame % 2 ? "100%" : "0%"} 0%`
+          : `${frame % 2 ? "100%" : "0%"} ${frame >= 2 ? "100%" : "0%"}`,
       }}
     />
   );
@@ -151,7 +158,7 @@ export function XmasCloset() {
     <div className="mt-4 flex flex-col gap-3" data-testid="xmas-closet">
       <h3 className="font-display text-2xl">Christmas closet</h3>
       <p className="text-sm text-cream-dim">{DLC_TITLE} cosmetics. Equip them here, they show up as soon as you close the station.</p>
-      {(["cuboe", "cubro"] as HeroId[]).map((hero) => (
+      {(["cuboe", "cubro", "candy-cube"] as HeroId[]).map((hero) => (
         <div key={hero}>
           <p className="mb-2 text-xs font-extrabold uppercase tracking-widest text-candy">{HEROES[hero].name}</p>
           <ul className="flex flex-col gap-2">
@@ -193,8 +200,6 @@ export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; 
   useEffect(() => {
     void loadLicensedManifest().then(() => force((n) => n + 1));
   }, []);
-  const now = dlcNow();
-  const gift = cosmeticById(DECEMBER_GIFT_ID)!;
   const pick = (track: string) => {
     sfx.ui();
     setXmas((s) => ({ ...s, track, music: true }));
@@ -288,17 +293,13 @@ export function XmasOptions({ onClose, onHome, inGame }: { onClose: () => void; 
         </section>
 
         <section className="flex items-center gap-3 rounded-2xl border border-cream/10 p-3">
-          <XIcon sheet="xmas-cosmetics" frame={3} size={44} />
+          <XIcon sheet="hayden-cosmetics" frame={0} size={44} />
           <div className="flex-1">
             <p className="flex items-center gap-2 font-display text-xl">
-              <Snowflake className="size-5" /> December gift
+              <Snowflake className="size-5" /> Candy Cube
             </p>
             <p className="text-xs text-cream-dim" data-testid="december-status">
-              {isOwned(x, gift.id)
-                ? `Unlocked: ${gift.name}. Equip it at the pumpkin station.`
-                : isDecember(now)
-                  ? `It's December! ${gift.name} unlocks now.`
-                  : `Play in December to get a free cosmetic (${gift.name}).`}
+              Hayden&apos;s Christmas character replaced the Candy Cane Scarf. Pick Candy Cube on the character select, then equip the Elf costume and Candle aura at the pumpkin station.
             </p>
           </div>
         </section>

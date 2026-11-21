@@ -15,7 +15,7 @@ export interface SaveData {
   lore: string[];
   endings: string[];
   promo: string[];
-  combos: { cuboe: string[]; cubro: string[] };
+  combos: { cuboe: string[]; cubro: string[]; "candy-cube": string[] };
   pits: number;
   saiyanKills: number;
   minigames: Record<string, Rank>;
@@ -39,7 +39,7 @@ const DEFAULTS: SaveData = {
   lore: [],
   endings: [],
   promo: [],
-  combos: { cuboe: [], cubro: [] },
+  combos: { cuboe: [], cubro: [], "candy-cube": [] },
   pits: 0,
   saiyanKills: 0,
   minigames: {},
@@ -49,10 +49,17 @@ const DEFAULTS: SaveData = {
 };
 
 function migrate(raw: SaveData): SaveData {
+  const hero = raw.hero === "candy-cube" || raw.hero === "cuboe" || raw.hero === "cubro" ? raw.hero : DEFAULTS.hero;
   return {
     ...DEFAULTS,
     ...raw,
     version: SAVE_VERSION,
+    hero,
+    combos: {
+      cuboe: raw.combos?.cuboe ?? [],
+      cubro: raw.combos?.cubro ?? [],
+      "candy-cube": raw.combos?.["candy-cube"] ?? [],
+    },
     settings: { ...DEFAULTS.settings, ...raw.settings },
     dlc: { ...raw.dlc, xmas: normalizeXmas(raw.dlc?.xmas) },
   };

@@ -1,4 +1,4 @@
-export type HeroId = "cuboe" | "cubro";
+export type HeroId = "cuboe" | "cubro" | "candy-cube";
 export type Rank = "P" | "S" | "A" | "B" | "C" | "D" | "F";
 
 export const HEROES: Record<
@@ -7,6 +7,12 @@ export const HEROES: Record<
     name: string;
     tag: string;
     lives: number;
+    /** Hit points per life. Defaults to `lives` when omitted (Cuboe / Cubro). */
+    hp?: number;
+    /** Walk/run speed relative to Cuboe's base (260 / 480). */
+    speed?: number;
+    /** Only offered on the character select screen when the Christmas DLC is on. */
+    dlc?: boolean;
     control: string;
     blurb: string;
     color: string;
@@ -30,6 +36,18 @@ export const HEROES: Record<
     blurb: "Chocolate cube in visor shades. Faster mach run, bounce jump, and Super Saiyan Burst.",
     color: "#c47a3a",
     portrait: "/game/sprites/cubro-portrait.png",
+  },
+  "candy-cube": {
+    name: "Candy Cube",
+    tag: "Hard",
+    lives: 9,
+    hp: 6,
+    speed: 0.9,
+    dlc: true,
+    control: "Punch, shield, air stall — at Hard pace",
+    blurb: "Hayden's Christmas cube: red and white stripes, swirl eyes, and a harder fight. HP 6, 9 lives, a little slower than Cuboe.",
+    color: "#e11d2e",
+    portrait: "/game/sprites/candy-cube-portrait.png",
   },
 };
 
@@ -173,10 +191,25 @@ export const BOSSES: Record<
     hitWhen: "After a ray, while the crown flashes.",
     lore: "Fall into a pit 20 times in the campaign to unlock his backstory.",
   },
+  "admin-warlords": {
+    name: "Admin Warlords",
+    sprite: "warlord-1",
+    lives: 10,
+    moves: ["Admin orbs", "Hand volleys", "Phase rush"],
+    hitWhen: "After a volley, while they are flashing.",
+    lore: "Secret extreme boss. Unlock the Admin button on the main menu after both the Good and Bad endings. Power type: Admin. 3 phases, 10 hits each.",
+  },
 };
 
 export const COMBOS = {
   cuboe: [
+    { id: "aeraste", name: "Aeraste", input: "Jump on an enemy", desc: "Stomp to bounce-kill." },
+    { id: "laser", name: "Spinning Laser", input: "J in the air (35 meter)", desc: "Lasers spin in all directions." },
+    { id: "shield", name: "Forward Shield", input: "Q (20 meter)", desc: "Protective shield for 5 seconds." },
+    { id: "blackhole", name: "Black Hole", input: "Up + Q (40 meter)", desc: "Pulls enemies in." },
+    { id: "beams", name: "Two-Side Energy Beam", input: "Up + J (30 meter)", desc: "Fires beams both ways." },
+  ],
+  "candy-cube": [
     { id: "aeraste", name: "Aeraste", input: "Jump on an enemy", desc: "Stomp to bounce-kill." },
     { id: "laser", name: "Spinning Laser", input: "J in the air (35 meter)", desc: "Lasers spin in all directions." },
     { id: "shield", name: "Forward Shield", input: "Q (20 meter)", desc: "Protective shield for 5 seconds." },

@@ -8,7 +8,7 @@
  * of it unless the DLC button on the main menu has been pressed.
  */
 
-export type HeroKey = "cuboe" | "cubro";
+export type HeroKey = "cuboe" | "cubro" | "candy-cube";
 
 export const DLC_ID = "tis-the-seasones";
 export const DLC_TITLE = "'Tis the Seasones";
@@ -27,8 +27,8 @@ export interface Cosmetic {
   /** How you get it. "dlc" = comes with the DLC, "december" = free gift for playing in December. */
   source: "dlc" | "december";
   blurb: string;
-  /** Frame in /game/sprites/xmas-cosmetics.png used for the closet icon (or xmas-pickups for auras). */
-  icon: { sheet: "xmas-cosmetics" | "xmas-pickups"; frame: number };
+  /** Frame in a 128px sprite sheet used for the closet icon. */
+  icon: { sheet: "xmas-cosmetics" | "xmas-pickups" | "hayden-cosmetics"; frame: number };
 }
 
 /** From the design sheet: "DLC features → Cosmetics". */
@@ -79,16 +79,26 @@ export const COSMETICS: Cosmetic[] = [
     icon: { sheet: "xmas-pickups", frame: 3 },
   },
   {
-    id: "candy-cane-scarf",
-    name: "Candy Cane Scarf",
-    hero: "both",
-    slot: "neck",
-    source: "december",
-    blurb: "Free gift for playing in December. Either cube can wear it.",
-    icon: { sheet: "xmas-cosmetics", frame: 3 },
+    id: "elf-costume",
+    name: "Elf costume",
+    hero: "candy-cube",
+    slot: "head",
+    source: "dlc",
+    blurb: "Candy's Christmas Cosmetics: a little elf hat for Candy Cube.",
+    icon: { sheet: "hayden-cosmetics", frame: 0 },
+  },
+  {
+    id: "candle-aura",
+    name: "Candle aura",
+    hero: "candy-cube",
+    slot: "aura",
+    source: "dlc",
+    blurb: "Candy's Christmas Cosmetics: a warm candlelight glow.",
+    icon: { sheet: "hayden-cosmetics", frame: 1 },
   },
 ];
 
+/** Retired: Candy Cube replaced the Candy Cane Scarf. Kept so old saves can be cleaned up. */
 export const DECEMBER_GIFT_ID = "candy-cane-scarf";
 
 export type CollectableKind = "present" | "ornament" | "tree";
@@ -122,7 +132,7 @@ export const XMAS_DEFAULTS: XmasSave = {
   track: "area-themes",
   coop: false,
   owned: [],
-  equipped: { cuboe: [], cubro: [] },
+  equipped: { cuboe: [], cubro: [], "candy-cube": [] },
   collected: { present: 0, ornament: 0, tree: 0 },
   points: 0,
   decemberYears: [],
@@ -130,16 +140,30 @@ export const XMAS_DEFAULTS: XmasSave = {
 
 export function normalizeXmas(raw: Partial<XmasSave> | undefined | null): XmasSave {
   const r = raw ?? {};
-  return {
+  return dropRetiredScarf({
     ...XMAS_DEFAULTS,
     ...r,
     owned: Array.isArray(r.owned) ? [...r.owned] : [],
     equipped: {
       cuboe: Array.isArray(r.equipped?.cuboe) ? [...r.equipped!.cuboe] : [],
       cubro: Array.isArray(r.equipped?.cubro) ? [...r.equipped!.cubro] : [],
+      "candy-cube": Array.isArray(r.equipped?.["candy-cube"]) ? [...r.equipped!["candy-cube"]] : [],
     },
     collected: { ...XMAS_DEFAULTS.collected, ...(r.collected ?? {}) },
     decemberYears: Array.isArray(r.decemberYears) ? [...r.decemberYears] : [],
+  });
+}
+
+function dropRetiredScarf(s: XmasSave): XmasSave {
+  const drop = (list: string[]) => list.filter((id) => id !== DECEMBER_GIFT_ID);
+  return {
+    ...s,
+    owned: drop(s.owned),
+    equipped: {
+      cuboe: drop(s.equipped.cuboe),
+      cubro: drop(s.equipped.cubro),
+      "candy-cube": drop(s.equipped["candy-cube"] ?? []),
+    },
   };
 }
 
@@ -214,18 +238,16 @@ export function decemberGiftDue(s: XmasSave, d: Date) {
   return s.enabled && isDecember(d) && !s.decemberYears.includes(d.getFullYear());
 }
 
-/** Returns the new state and whether the scarf was newly unlocked. */
+/**
+ * The Candy Cane Scarf was retired (Candy Cube replaced it). We still stamp
+ * the year so December doesn't nag, but nothing is granted.
+ */
 export function claimDecemberGift(s: XmasSave, d: Date): { state: XmasSave; granted: boolean; firstTime: boolean } {
   if (!decemberGiftDue(s, d)) return { state: s, granted: false, firstTime: false };
-  const firstTime = !s.owned.includes(DECEMBER_GIFT_ID);
   return {
-    state: {
-      ...s,
-      owned: firstTime ? [...s.owned, DECEMBER_GIFT_ID] : s.owned,
-      decemberYears: [...s.decemberYears, d.getFullYear()],
-    },
-    granted: true,
-    firstTime,
+    state: { ...s, decemberYears: [...s.decemberYears, d.getFullYear()] },
+    granted: false,
+    firstTime: false,
   };
 }
 

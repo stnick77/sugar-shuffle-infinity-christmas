@@ -14,6 +14,7 @@ import {
 import { onGame } from "@/game/bus";
 import { unlockAudio, startMusic, stopMusic, sfx, setSfxVolume, setMusicVolume } from "@/game/audio";
 import { COMBOS, ENDINGS, HEROES, LORE, MINIGAMES, PROMO_CODES, type HeroId, type Rank } from "@/game/data/world";
+import { ADMIN_LEVEL_ID, CREDITS, adminWarlordsUnlocked, candyCubeUnlocked } from "@/game/hayden/content";
 import { LEVELS } from "@/game/data/levels";
 import { resetSave } from "@/game/save";
 import { HMR_EVENT, ssi } from "@/game/runtime";
@@ -296,6 +297,14 @@ export function GameApp() {
             setReady(false);
             setScreen("select");
           }}
+          onAdmin={() => {
+            unlock();
+            pendingStart.current = ADMIN_LEVEL_ID;
+            setBooted(false);
+            setReady(false);
+            destroyLater();
+            setScreen("select");
+          }}
         />
       )}
       {screen === "select" && (
@@ -326,7 +335,11 @@ export function GameApp() {
         <Modal title={LEVELS[lastRank.levelId]?.name ?? lastRank.levelId}>
           <p className="font-display text-7xl text-candy">{lastRank.rank}</p>
           <p className="text-cream-dim">Score {lastRank.score.toLocaleString()}</p>
-          <Btn onClick={toHub}>Back to hub</Btn>
+          {lastRank.levelId === ADMIN_LEVEL_ID ? (
+            <Btn onClick={goTitle}>Title</Btn>
+          ) : (
+            <Btn onClick={toHub}>Back to hub</Btn>
+          )}
         </Modal>
       )}
       {screen === "over" && (
@@ -336,7 +349,8 @@ export function GameApp() {
           <Btn onClick={goTitle} tone="ghost">Title</Btn>
         </Modal>
       )}
-      {screen === "ending" && <Ending onTitle={goTitle} />}
+      {screen === "ending" && <Ending onTitle={goTitle} onCredits={() => setScreen("credits")} />}
+      {screen === "credits" && <CreditsScreen onTitle={goTitle} />}
       {screen === "how" && <How onClose={closeMenu} />}
       {screen === "lore" && <Lore onClose={closeMenu} />}
       {screen === "gallery" && <Gallery go={setScreen} onClose={closeMenu} />}
@@ -455,8 +469,10 @@ function HudBar() {
   );
 }
 
-function Title({ onPlay, go, onHome }: { onPlay: () => void; go: (s: Screen) => void; onHome: () => void }) {
+function Title({ onPlay, go, onHome, onAdmin }: { onPlay: () => void; go: (s: Screen) => void; onHome: () => void; onAdmin: () => void }) {
   const dlcOn = useXmasOn();
+  const endings = useGame((s) => s.save.endings);
+  const adminOpen = adminWarlordsUnlocked(endings);
   return (
     <div
       className="absolute inset-0 z-40 flex flex-col items-center justify-center overflow-y-auto bg-cover bg-center px-5 py-6"
@@ -472,6 +488,7 @@ function Title({ onPlay, go, onHome }: { onPlay: () => void; go: (s: Screen) => 
       <div className="mt-4 flex items-end gap-6">
         <img src={HEROES.cuboe.portrait} alt="" className="h-16 w-16 object-contain" />
         <img src={HEROES.cubro.portrait} alt="" className="h-16 w-16 object-contain" />
+        {dlcOn && <img src={HEROES["candy-cube"].portrait} alt="" className="h-16 w-16 object-contain" />}
       </div>
       <p className="mt-4 max-w-md text-center text-sm text-cream-dim">
         Cuboe and Cubro sprint through five candy floors to save Halloween from the Candy Warlock.
@@ -497,6 +514,14 @@ function Title({ onPlay, go, onHome }: { onPlay: () => void; go: (s: Screen) => 
         <Btn tone="ghost" onClick={() => { sfx.ui(); go("endings"); }}>
           <Trophy className="size-4" /> Endings
         </Btn>
+        <Btn tone="ghost" onClick={() => { sfx.ui(); go("credits"); }}>
+          Credits
+        </Btn>
+        {adminOpen && (
+          <Btn onClick={onAdmin}>
+            Admin
+          </Btn>
+        )}
         {dlcOn && (
           <div className="grid grid-cols-2 gap-2">
             <Btn tone="ghost" onClick={onHome}>
@@ -515,13 +540,16 @@ function Title({ onPlay, go, onHome }: { onPlay: () => void; go: (s: Screen) => 
 }
 
 function Select({ onPick, onBack }: { onPick: (h: HeroId) => void; onBack: () => void }) {
+  const dlcOn = useXmasOn();
+  const ids = (Object.keys(HEROES) as HeroId[]).filter((id) => !HEROES[id].dlc || candyCubeUnlocked(dlcOn));
   return (
     <div className="absolute inset-0 z-40 flex flex-col items-center justify-center bg-ink px-4">
       <p className="text-xs font-extrabold uppercase tracking-[0.28em] text-candy">Choose a cube</p>
       <h2 className="mt-1 font-display text-4xl">Who walks in?</h2>
-      <div className="mt-8 grid w-full max-w-2xl gap-4 sm:grid-cols-2">
-        {(Object.keys(HEROES) as HeroId[]).map((id) => {
+      <div className={"mt-8 grid w-full max-w-3xl gap-4 " + (ids.length > 2 ? "sm:grid-cols-3" : "sm:grid-cols-2")}>
+        {ids.map((id) => {
           const h = HEROES[id];
+          const hp = h.hp ?? h.lives;
           return (
             <button
               key={id}
@@ -532,7 +560,7 @@ function Select({ onPick, onBack }: { onPick: (h: HeroId) => void; onBack: () =>
               <img src={h.portrait} alt="" className="mx-auto h-28 w-28 object-contain" />
               <p className="mt-3 font-display text-3xl">{h.name}</p>
               <p className="text-xs font-extrabold uppercase tracking-widest text-candy">
-                {h.tag} · {h.lives} lives
+                {h.tag} · HP {hp} · {h.lives} lives
               </p>
               <p className="mt-2 text-sm text-cream-dim">{h.blurb}</p>
             </button>
@@ -687,14 +715,55 @@ function Endings({ onClose }: { onClose: () => void }) {
   );
 }
 
-function Ending({ onTitle }: { onTitle: () => void }) {
+function Ending({ onTitle, onCredits }: { onTitle: () => void; onCredits: () => void }) {
   const ending = useGame((s) => s.ending);
   const meta = ENDINGS.find((e) => e.id === ending);
   return (
     <Modal title={meta?.name ?? "Ending"}>
       <p className="text-cream-dim">{meta?.how}</p>
-      <Btn onClick={onTitle}>Title</Btn>
+      <Btn onClick={onCredits}>Credits</Btn>
+      <Btn tone="ghost" onClick={onTitle}>Title</Btn>
     </Modal>
+  );
+}
+
+function CreditsScreen({ onTitle }: { onTitle: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.repeat || (e.code !== "Space" && e.code !== "Enter" && e.code !== "Escape")) return;
+      e.preventDefault();
+      sfx.ui();
+      onTitle();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onTitle]);
+  return (
+    <div className="absolute inset-0 z-40 overflow-y-auto bg-ink px-5 py-8">
+      <div className="mx-auto flex w-full max-w-xl flex-col items-center gap-4 text-center">
+        <p className="text-xs font-extrabold uppercase tracking-[0.28em] text-candy">{CREDITS.title}</p>
+        <ul className="w-full space-y-2 text-left">
+          {CREDITS.roles.map((r) => (
+            <li key={r.role} className="rounded-2xl border border-cream/10 bg-surface px-4 py-2">
+              <p className="text-xs font-extrabold uppercase tracking-widest text-candy">{r.role}</p>
+              <p className="font-display text-xl">{r.names.join(", ")}</p>
+            </li>
+          ))}
+          <li className="rounded-2xl border border-cream/10 bg-surface px-4 py-2">
+            <p className="text-xs font-extrabold uppercase tracking-widest text-candy">{CREDITS.crewLabel}</p>
+            <p className="font-display text-xl">{CREDITS.crew.join(", ")}</p>
+          </li>
+        </ul>
+        <img
+          src="/game/sprites/credits-cuboe-cubro.png"
+          alt="Cuboe and Cubro"
+          className="mt-2 w-full max-w-lg object-contain"
+        />
+        <p className="font-display text-2xl text-candy">{CREDITS.signoff}</p>
+        <p className="text-sm text-cream-dim">{CREDITS.hint}</p>
+        <Btn onClick={onTitle}>Main menu</Btn>
+      </div>
+    </div>
   );
 }
 

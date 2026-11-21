@@ -3,6 +3,8 @@ import { TILE } from "../config";
 import { MAX_FALL_SPEED, canEnterDoor, capFallSpeed, landingFloorTop, shouldLandOnFloor, type Aabb } from "../physics/floors";
 import { LEVELS, eachCell, hubIdFor, worldSize, type LevelDef } from "../data/levels";
 import { BOSSES, FLOORS, HEROES, rankFromScore, type HeroId } from "../data/world";
+import { ADMIN_BOSS_ID, ADMIN_PHASE_HP, usesCuboeKit } from "../hayden/content";
+import { nextAdminPhase, patternAt, type AdminPhase } from "../bosses/adminWarlords";
 import { emitGame } from "../bus";
 import { bootInput, pollGamepad, readActions, readActionsP2, setCoopInput, setInjected } from "../input";
 import { sfx } from "../audio";
@@ -64,6 +66,7 @@ const BOSS_COLOR: Record<string, number> = {
   "f3-boss": 0xff5a5a,
   "f4-boss": 0x6ff0ff,
   "f5-boss": 0xb48cff,
+  "admin-warlords": 0x9a5cff,
 };
 
 export class PlayScene extends Phaser.Scene {
@@ -184,7 +187,7 @@ export class PlayScene extends Phaser.Scene {
     s(bgKeyFor(room.bg), room.bg);
     s("ground-candy", "/game/sprites/ground-candy.png");
     s("ground-marsh", "/game/sprites/ground-marsh.png");
-    for (const h of ["cuboe", "cubro"] as const) {
+    for (const h of ["cuboe", "cubro", "candy-cube"] as const) {
       for (const a of ["idle", "run", "jump", "attack"] as const) sheet(`${h}-${a}`, `/game/sprites/${h}-${a}.png`);
     }
     sheet("boxguy", "/game/sprites/boxguy.png");
@@ -193,6 +196,10 @@ export class PlayScene extends Phaser.Scene {
     sheet("choco", "/game/sprites/choco.png");
     sheet("outlaw", "/game/sprites/outlaw.png");
     sheet("warlock", "/game/sprites/warlock.png");
+    s("warlord-1", "/game/sprites/warlord-1.png");
+    s("warlord-2", "/game/sprites/warlord-2.png");
+    s("warlord-3", "/game/sprites/warlord-3.png");
+    s("admin-orb", "/game/sprites/admin-orb.png");
     sheet("pickups", "/game/sprites/pickups.png");
     s("door-room", "/game/sprites/door-room.png");
     s("door-boss", "/game/sprites/door-boss.png");
@@ -222,8 +229,8 @@ export class PlayScene extends Phaser.Scene {
     bootInput();
     this.hero = useGame.getState().save.hero;
     const def = HEROES[this.hero];
-    this.maxHp = def.lives;
-    this.hp = def.lives;
+    this.maxHp = def.hp ?? def.lives;
+    this.hp = this.maxHp;
     this.lives = useGame.getState().hud.lives || def.lives;
     this.score = 0;
     this.meter = 20;
@@ -337,7 +344,7 @@ export class PlayScene extends Phaser.Scene {
         repeat: rep,
       });
     };
-    for (const h of ["cuboe", "cubro"] as const) {
+    for (const h of ["cuboe", "cubro", "candy-cube"] as const) {
       mk(`${h}-idle`, `${h}-idle`, 7, -1);
       mk(`${h}-run`, `${h}-run`, 12, -1);
       mk(`${h}-jump`, `${h}-jump`, 8, 0);
@@ -762,7 +769,7 @@ export class PlayScene extends Phaser.Scene {
     // never separated it and gravity pulled it through to the world bottom (inside the floor).
     const floorTop = this.arenaFloorTop(x);
     const spr = this.physics.add.sprite(x, floorTop - BOSS_FEET, info.sprite, 0);
-    spr.setDisplaySize(96, 96);
+    spr.setDisplaySize(id === ADMIN_BOSS_ID ? 120 : 96, id === ADMIN_BOSS_ID ? 120 : 96);
     spr.setDepth(5); // in front of the ground tiles (depth 1), behind the heroes
     (spr.body as Phaser.Physics.Arcade.Body).setGravityY(2200);
     (spr.body as Phaser.Physics.Arcade.Body).setSize(80, 90).setOffset(24, 30);
@@ -773,6 +780,7 @@ export class PlayScene extends Phaser.Scene {
     if (this.anims.exists(idle)) spr.play(idle);
     spr.setData("open", false);
     spr.setData("phase", 1);
+    spr.setData("adminPhase", 1);
     spr.setData("attacks", 0);
     spr.setFlipX(true);
     // Fake Cubro / Fake Cuboe: cursed sheets + aura, floating cursed bits and a glitch flicker.
@@ -785,7 +793,7 @@ export class PlayScene extends Phaser.Scene {
       this.trauma = Math.min(1, this.trauma + 0.55);
       sfx.bossSlam();
       this.pop(x, floorTop - 130, info.name.toUpperCase());
-      this.time.delayedCall(500, () => this.pop(x, floorTop - 100, "HIT WHEN FLASHING"));
+      this.time.delayedCall(500, () => this.pop(x, floorTop - 100, id === ADMIN_BOSS_ID ? "EXTREME · HIT WHEN FLASHING" : "HIT WHEN FLASHING"));
     });
   }
 
@@ -884,7 +892,10 @@ export class PlayScene extends Phaser.Scene {
     }
 
     const wantRun = actions.run || this.hero === "cubro";
-    const max = this.burstT > 0 ? 760 : this.speedT > 0 ? 640 : wantRun ? (this.hero === "cubro" ? 560 : 480) : 260;
+    const speedMul = HEROES[this.hero].speed ?? 1;
+    const walk = 260 * speedMul;
+    const run = (this.hero === "cubro" ? 560 : 480) * speedMul;
+    const max = this.burstT > 0 ? 760 * speedMul : this.speedT > 0 ? 640 * speedMul : wantRun ? run : walk;
     const accel = grounded ? 3200 : 1800;
     if (actions.moveX !== 0) {
       body.setAccelerationX(actions.moveX * accel);
@@ -1026,14 +1037,14 @@ export class PlayScene extends Phaser.Scene {
     sfx.attack();
     const grounded = (this.player.body as Phaser.Physics.Arcade.Body).blocked.down;
 
-    if (this.hero === "cuboe" && actions.up && this.spend(30)) {
+    if (usesCuboeKit(this.hero) && actions.up && this.spend(30)) {
       this.masterCombo("beams");
       this.shoot(this.player.x, this.player.y, 1);
       this.shoot(this.player.x, this.player.y, -1);
       this.pop(this.player.x, this.player.y - 40, "BEAMS");
       return;
     }
-    if (this.hero === "cuboe" && !grounded && this.spend(35)) {
+    if (usesCuboeKit(this.hero) && !grounded && this.spend(35)) {
       this.masterCombo("laser");
       for (let i = 0; i < 8; i++) {
         const a = (i / 8) * Math.PI * 2;
@@ -1070,7 +1081,7 @@ export class PlayScene extends Phaser.Scene {
   }
 
   private doSpecial(actions: ReturnType<typeof readActions>) {
-    if (this.hero === "cuboe") {
+    if (usesCuboeKit(this.hero)) {
       if (actions.up && this.spend(40)) {
         this.holeT = 2;
         this.masterCombo("blackhole");
@@ -1135,12 +1146,116 @@ export class PlayScene extends Phaser.Scene {
     this.addCombo(100);
     this.meter = Math.min(100, this.meter + 8);
     if (m.hp <= 0) {
+      if (m.kind === "boss" && this.advanceAdminPhase(m)) return;
       this.pop(m.spr.x, m.spr.y, m.kind === "boss" ? "KO" : "+100");
       if (m.kind === "boss") this.defeatBoss(m);
       else {
         m.spr.destroy();
         this.kills++;
       }
+    }
+  }
+
+
+  private isAdminFight() {
+    return (this.level.bossId ?? "") === ADMIN_BOSS_ID;
+  }
+
+  /** 10 hits down in phase 1 or 2: swap to the next warlord, refill, keep fighting. */
+  private advanceAdminPhase(m: Mob): boolean {
+    if (!this.isAdminFight()) return false;
+    const next = nextAdminPhase(Number(m.spr.getData("adminPhase") ?? 1));
+    if (!next) return false;
+    m.hp = ADMIN_PHASE_HP;
+    m.spr.setData("adminPhase", next);
+    m.spr.setData("phase", next);
+    m.spr.setData("open", false);
+    m.spr.setData("move", "");
+    const key = next === 2 ? "warlord-2" : "warlord-3";
+    if (this.textures.exists(key)) m.spr.setTexture(key);
+    m.spr.setDisplaySize(120, 120);
+    this.hazards.forEach((h) => h.destroy());
+    this.hazards = [];
+    this.shots.getChildren().forEach((c) => {
+      if (!(c as Phaser.GameObjects.Sprite).getData("friendly")) c.destroy();
+    });
+    m.rig?.phaseUp(0x9a5cff);
+    this.trauma = Math.min(1, this.trauma + 0.55);
+    this.cameras.main.flash(140, 180, 160, 255);
+    sfx.bossRoar();
+    this.pop(m.spr.x, m.spr.y - 110, next === 3 ? "FINAL PHASE!" : "PHASE 2!");
+    this.label = `Admin Warlords · Phase ${next}`;
+    m.next = this.time.now + 900;
+    return true;
+  }
+
+  private fireAdminOrb(x: number, y: number, vx: number, vy: number) {
+    const hard = this.hero === "candy-cube" ? 1.12 : 1;
+    const b = this.shots.create(x, y, "admin-orb") as Phaser.Physics.Arcade.Sprite;
+    b.setDisplaySize(28, 28);
+    b.setDepth(7);
+    b.setData("friendly", false);
+    const body = b.body as Phaser.Physics.Arcade.Body;
+    body.setAllowGravity(false);
+    body.setVelocity(vx * hard, vy * hard);
+    this.time.delayedCall(2400, () => b.destroy());
+  }
+
+  /**
+   * Extreme but fair Admin Warlords AI: orbs come from their hands, each phase
+   * is denser and faster, open windows shrink, and every volley leaves a dodge lane.
+   */
+  private tickAdminWarlords(m: Mob, now: number) {
+    const phase = (Number(m.spr.getData("adminPhase") ?? 1) || 1) as AdminPhase;
+    this.label = `Admin Warlords · Phase ${phase}`;
+    if (now < m.next) return;
+    const attacks = Number(m.spr.getData("attacks") ?? 0);
+    const pat = patternAt(phase, attacks);
+    const move = String(m.spr.getData("move") ?? "");
+    if (!move) {
+      m.spr.setData("move", "tell");
+      m.spr.setData("moveUntil", now + pat.telegraphMs);
+      m.spr.setTint(0xffe066);
+      sfx.bossWarn();
+      m.next = now + 16;
+      return;
+    }
+    if (move === "tell") {
+      if (now < Number(m.spr.getData("moveUntil") ?? 0)) return;
+      m.spr.clearTint();
+      m.spr.setData("move", "fire");
+      const px = this.player.x - m.spr.x;
+      const py = this.player.y - m.spr.y;
+      // Aim patterns that used local "toward +y" at the player by rotating? Most
+      // patterns already have absolute velocities. Retarget spread/stream at the player.
+      for (const o of pat.orbs) {
+        let vx = o.vx;
+        let vy = o.vy;
+        if (pat.id === "spread3" || pat.id === "spread5" || pat.id === "double" || pat.id === "stream" || pat.id === "hands") {
+          const speed = Math.hypot(o.vx, o.vy) || 300;
+          const tx = px + o.ox * 0.4;
+          const ty = py;
+          const len = Math.hypot(tx, ty) || 1;
+          vx = (tx / len) * speed;
+          vy = (ty / len) * speed;
+        }
+        const sx = m.spr.x + o.ox;
+        const sy = m.spr.y + o.oy;
+        this.time.delayedCall(o.delay, () => {
+          if (m.spr.active && !m.dying) this.fireAdminOrb(sx, sy, vx, vy);
+        });
+      }
+      const last = pat.orbs.reduce((n, o) => Math.max(n, o.delay), 0);
+      m.spr.setData("moveUntil", now + last + pat.recoverMs);
+      m.next = now + 16;
+      return;
+    }
+    if (move === "fire") {
+      if (now < Number(m.spr.getData("moveUntil") ?? 0)) return;
+      m.spr.setData("move", "");
+      m.spr.setData("attacks", attacks + 1);
+      this.openBoss(m, pat.openMs);
+      m.next = now + pat.openMs + 80;
     }
   }
 
@@ -1191,7 +1306,8 @@ export class PlayScene extends Phaser.Scene {
         });
         continue;
       }
-      const spd = m.kind === "nincube" ? 90 : m.kind === "pump" ? 55 : 70;
+      const hard = this.hero === "candy-cube" ? 1.2 : 1;
+      const spd = (m.kind === "nincube" ? 90 : m.kind === "pump" ? 55 : 70) * hard;
       if (m.kind !== "cannon") body.setVelocityX(m.dir * spd);
       if (body.blocked.left) m.dir = 1;
       if (body.blocked.right) m.dir = -1;
@@ -1243,6 +1359,10 @@ export class PlayScene extends Phaser.Scene {
   private tickBoss(m: Mob, now: number) {
     this.keepBossOnFloor(m);
     const id = this.level.bossId ?? "f1-boss";
+    if (id === ADMIN_BOSS_ID) {
+      if (!m.rig?.entering) this.tickAdminWarlords(m, now);
+      return;
+    }
     this.bossPhase(m, id);
     if (id === "f1-boss") {
       if (!m.rig?.entering) this.tickChocoMan(m, now);
@@ -1517,7 +1637,8 @@ export class PlayScene extends Phaser.Scene {
     b.setData("friendly", friendly);
     const body = b.body as Phaser.Physics.Arcade.Body;
     body.setAllowGravity(false);
-    body.setVelocity(dir * (friendly ? 420 : 280), 0);
+    const shotMul = !friendly && this.hero === "candy-cube" ? 1.2 : 1;
+    body.setVelocity(dir * (friendly ? 420 : 280) * shotMul, 0);
     if (friendly) {
       this.time.delayedCall(80, () => {
         this.mobs.forEach((m) => {
@@ -1565,7 +1686,7 @@ export class PlayScene extends Phaser.Scene {
 
   private hurt(n: number) {
     if (this.hurtT > 0 || this.invulnT > 0) return;
-    this.hurtT = 0.85;
+    this.hurtT = this.hero === "candy-cube" ? 0.62 : 0.85;
     this.hp -= n;
     this.damaged = true;
     this.trauma = Math.min(1, this.trauma + 0.5);

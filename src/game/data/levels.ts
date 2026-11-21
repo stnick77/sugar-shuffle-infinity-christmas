@@ -302,6 +302,14 @@ const ARENA_F4: string[] = [
   "########################################",
 ];
 
+const ARENA_ADMIN: string[] = [
+  "........................................",
+  "......====..............====............",
+  "........................................",
+  ".........S..............B...............",
+  "########################################",
+];
+
 const FINAL: string[] = [
   "........................................................................................",
   "................C................n..............p.......................................",
@@ -382,6 +390,14 @@ export const LEVELS: Record<string, LevelDef> = {
     isFinal: true,
     pizzaTime: 240,
     bg: "/game/bg/rotting-pumpkin.jpg",
+  }),
+  "admin-warlords": pack("admin-warlords", "Admin Warlords", ARENA_ADMIN, {
+    isBoss: true,
+    bossId: "admin-warlords",
+    pizzaTime: 0,
+    bg: "/game/bg/grave-yard.jpg",
+    ground: "marsh",
+    tint: 0x3a2458,
   }),
 };
 
