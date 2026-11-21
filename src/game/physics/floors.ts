@@ -7,6 +7,19 @@
 /** Max downward speed so one 50ms step cannot skip a 48px floor tile. */
 export const MAX_FALL_SPEED = 840;
 
+/**
+ * Arcade OVERLAP_BIAS for the play scene. Arcade resolves Y first (gravity is
+ * on Y) and treats any vertical overlap up to |dy| + bias as "hit the top or
+ * bottom". It must stay well under a tile: at 48 (one tile) walking into the
+ * side of a one-tile step counted as a 48px vertical hit, and because the
+ * hero's body (~39px) is shorter than the tile, Arcade decided the tile was
+ * "on top" and shoved the hero DOWN through the floor, out of the world:
+ * instant death. Fast falls don't need a big bias: the body's own per-step
+ * fall (|dy|, capped by MAX_FALL_SPEED) is already part of the allowance, and
+ * the swept snap below catches anything left.
+ */
+export const ARCADE_OVERLAP_BIAS = 8;
+
 /** Bodies already standing sit a few pixels into the floor. */
 export const FLOOR_SLOP = 8;
 

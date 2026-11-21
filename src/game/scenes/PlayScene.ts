@@ -1,6 +1,6 @@
 import * as Phaser from "phaser";
 import { TILE } from "../config";
-import { MAX_FALL_SPEED, canEnterDoor, capFallSpeed, landingFloorTop, shouldLandOnFloor, type Aabb } from "../physics/floors";
+import { ARCADE_OVERLAP_BIAS, MAX_FALL_SPEED, canEnterDoor, capFallSpeed, landingFloorTop, shouldLandOnFloor, type Aabb } from "../physics/floors";
 import { LEVELS, eachCell, hubIdFor, worldSize, type LevelDef } from "../data/levels";
 import { BOSSES, FLOORS, HEROES, rankFromScore, type HeroId } from "../data/world";
 import { ADMIN_BOSS_ID, ADMIN_PHASE_HP, usesCuboeKit } from "../hayden/content";
@@ -267,9 +267,10 @@ export class PlayScene extends Phaser.Scene {
     // Rooms have an extra row below the camera so short gaps can be fallen through.
     this.physics.world.setBounds(0, 0, w, open ? h + TILE : h);
     this.physics.world.setBoundsCollision(true, true, true, !open);
-    // Discrete Arcade steps can skip a 48px tile at high fall speed; bias + post-step snap catch them.
-    this.physics.world.TILE_BIAS = TILE;
-    this.physics.world.OVERLAP_BIAS = TILE;
+    // Fast falls are handled by the fall-speed cap, fixed-step physics and the post-step swept
+    // snap. Keep Arcade's overlap bias small: a tile-sized bias turned side hits into vertical
+    // hits and pushed the hero down through the floor (see ARCADE_OVERLAP_BIAS).
+    this.physics.world.OVERLAP_BIAS = ARCADE_OVERLAP_BIAS;
 
     if (!this.textures.exists("px")) {
       const g = this.make.graphics({ x: 0, y: 0 });
